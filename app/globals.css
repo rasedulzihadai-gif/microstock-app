@@ -1,0 +1,59 @@
+:root {
+  /* Color tokens */
+  --bg: #13151b;
+  --panel: #1b1e27;
+  --panel-raised: #21242f;
+  --border: #2c303c;
+  --border-soft: #23262f;
+  --text: #ece9e2;
+  --text-dim: #8b8e9a;
+  --text-faint: #5b5e6a;
+  --amber: #e8a33d;
+  --amber-dim: #6b4f24;
+  --teal: #4fd1c5;
+  --red: #e2695b;
+
+  /* Type */
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+input, textarea {
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--amber-dim);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
