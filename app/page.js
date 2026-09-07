@@ -135,6 +135,7 @@ export default function Home() {
     const newItems = Array.from(fileList).map((file) => ({
       filename: file.name,
       file,
+      previewUrl: URL.createObjectURL(file),
       status: "pending",
       result: null,
       error: null,
@@ -145,6 +146,14 @@ export default function Home() {
       return merged;
     });
   }
+
+  // Revoke object URLs when the component unmounts, to avoid leaking memory
+  // over a long batch session.
+  useEffect(() => {
+    return () => {
+      itemsRef.current.forEach((it) => it.previewUrl && URL.revokeObjectURL(it.previewUrl));
+    };
+  }, []);
 
   async function processOne(index) {
     // Clear any previous error the instant a new attempt starts —
@@ -269,10 +278,13 @@ export default function Home() {
             >
               <span style={{
                 width: 34, height: 34, borderRadius: 4, background: "var(--panel-raised)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 14, flexShrink: 0, overflow: "hidden",
+                flexShrink: 0, overflow: "hidden",
               }}>
-                🖼
+                <img
+                  src={it.previewUrl}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
               </span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -333,10 +345,22 @@ export default function Home() {
 
           {active && (
             <div key={activeIndex} style={{ animation: "rise-in 0.25s ease" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0 }}>{active.filename}</h2>
-                <StatusDot status={active.status} />
-              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <img
+                  src={active.previewUrl}
+                  alt={active.filename}
+                  style={{
+                    width: 160, height: 160, objectFit: "cover", borderRadius: 8,
+                    border: "1px solid var(--border-soft)", flexShrink: 0,
+                  }}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, margin: 0, wordBreak: "break-word" }}>
+                      {active.filename}
+                    </h2>
+                    <StatusDot status={active.status} />
+                  </div>
 
               {active.status === "error" && (
                 <div style={{
@@ -353,6 +377,8 @@ export default function Home() {
               {active.status === "processing" && (
                 <div style={{ marginTop: 20, color: "var(--text-dim)", fontSize: 13 }}>Analyzing image…</div>
               )}
+                </div>
+              </div>
 
               {active.result && (
                 <div style={{ marginTop: 20 }}>
