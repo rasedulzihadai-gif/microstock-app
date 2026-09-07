@@ -18,7 +18,7 @@ export async function POST(req) {
     ? `Context/theme hint from the user: ${context}. Now analyze this image.`
     : "Analyze this image.";
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
 
   try {
     const geminiRes = await fetch(geminiUrl, {
