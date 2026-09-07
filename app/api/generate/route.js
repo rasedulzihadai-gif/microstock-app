@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT } from "../../../lib/prompt";
+import { SYSTEM_PROMPT, FALLBACK_REMINDER } from "../../../lib/prompt";
 
 // Tried in order. If one is overloaded/rate-limited/unavailable, the next
 // one is used automatically — the user never has to switch models manually.
@@ -52,7 +52,7 @@ export async function POST(req) {
     return Response.json({ error: "No image provided." }, { status: 400 });
   }
 
-  const userText = context
+  const baseUserText = context
     ? `Context/theme hint from the user: ${context}. Now analyze this image.`
     : "Analyze this image.";
 
@@ -61,6 +61,12 @@ export async function POST(req) {
 
   for (let i = 0; i < MODEL_FALLBACK_CHAIN.length; i++) {
     const modelId = MODEL_FALLBACK_CHAIN[i];
+    // Every model after the first (i.e. any fallback) gets the compact
+    // rule-reminder appended to the user turn as well as the system prompt —
+    // lighter/older models weight the user message more heavily, so this
+    // measurably improves rule A-D compliance on them.
+    const userText = i === 0 ? baseUserText : `${baseUserText}\n${FALLBACK_REMINDER}`;
+
     try {
       const { ok, status, data } = await callModel(
         modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64
@@ -69,14 +75,12 @@ export async function POST(req) {
       if (!ok) {
         lastError = data?.error?.message || `${modelId} request failed.`;
         lastStatus = status === 400 ? 401 : status; // treat bad key as 401-ish
-        // Bad key / bad request: stop immediately, no point trying other models.
         if (!isRetryableStatus(status)) {
           return Response.json(
             { error: lastError, modelTried: modelId },
             { status: lastStatus }
           );
         }
-        // Otherwise (overloaded/rate-limited): fall through to next model.
         continue;
       }
 
@@ -89,11 +93,9 @@ export async function POST(req) {
       } catch (e) {
         lastError = "Model returned invalid JSON.";
         lastStatus = 502;
-        continue; // try next model on malformed output too
+        continue;
       }
 
-      // Success — tell the frontend which model actually answered, and
-      // whether a fallback happened, so the UI can show it if useful.
       return Response.json({
         ...parsed,
         _meta: { modelUsed: modelId, fellBack: i > 0 },
@@ -105,7 +107,6 @@ export async function POST(req) {
     }
   }
 
-  // All models in the chain failed.
   return Response.json(
     { error: `All models unavailable. Last error: ${lastError}` },
     { status: lastStatus }
