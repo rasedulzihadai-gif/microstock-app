@@ -1,4 +1,5 @@
 import { SYSTEM_PROMPT, FALLBACK_REMINDER } from "../../../lib/prompt";
+import { enforceOutputRules } from "../../../lib/enforce-rules";
 
 // Tried in order. If one is overloaded/rate-limited/unavailable, the next
 // one is used automatically — the user never has to switch models manually.
@@ -96,8 +97,11 @@ export async function POST(req) {
         continue;
       }
 
+      // Hard-enforce rules B/C/D regardless of which model answered.
+      const enforced = enforceOutputRules(parsed);
+
       return Response.json({
-        ...parsed,
+        ...enforced,
         _meta: { modelUsed: modelId, fellBack: i > 0 },
       });
     } catch (err) {
