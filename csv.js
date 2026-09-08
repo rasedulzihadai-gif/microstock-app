@@ -68,6 +68,24 @@ export function buildFreepikCsv(items) {
   return toCsv(rows, ";");
 }
 
+// Vecteezy official CSV spec (vecteezy.com blog — "Contributors: Use a CSV
+// to Upload Metadata Faster" / eezycontributors Zendesk "CSV Metadata
+// Upload"): standard comma-delimited CSV, columns in this exact order —
+// Filename, Title, Description, Keywords. Unlike Freepik this is NOT
+// semicolon-delimited and fields aren't force-quoted, so it can't just
+// reuse buildFreepikCsv's output — that's why the two were failing when
+// treated as one combined "freepik_vecteezy" export.
+export function buildVecteezyCsv(items) {
+  const header = ["Filename", "Title", "Description", "Keywords"];
+  const rows = [header];
+  for (const it of items) {
+    const meta = it.result.platforms.freepik_vecteezy;
+    const description = it.result.description || meta.title;
+    rows.push([it.filename, meta.title, description, meta.keywords.join(", ")]);
+  }
+  return toCsv(rows, ",");
+}
+
 // iStock / Getty Images (via Getty's ESP CSV import + third-party tools
 // like DeepMeta/PixTagger that document the same columns): File name,
 // Created date, Title, Description, Country, Brief code, Keywords.
