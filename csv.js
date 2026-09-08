@@ -59,7 +59,8 @@ export function buildShutterstockCsv(items) {
 // keywords field. We emit CRLF + quote-everything here, matching what
 // "CSV (MS-DOS)" export produces, so no extra save-as step is needed.
 export function buildFreepikCsv(items) {
-  const rows = [];
+  const header = ["Filename", "Title", "Keywords"];
+  const rows = [header];
   for (const it of items) {
     const meta = it.result.platforms.freepik_vecteezy;
     rows.push([it.filename, meta.title, meta.keywords.join(",")]);
