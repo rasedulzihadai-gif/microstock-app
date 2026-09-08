@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { buildAdobeStockCsv, buildShutterstockCsv, buildFreepikCsv, buildIstockGettyCsv, downloadCsv } from "../lib/csv";
 
 const PLATFORM_TABS = [
@@ -18,7 +18,7 @@ function fileToBase64(file) {
   });
 }
 
-function resizeImage(file, maxDim = 1400) {
+function resizeImage(file, maxDim = 1200) {
   return new Promise((resolve) => {
     const img = new Image();
     const reader = new FileReader();
@@ -37,7 +37,7 @@ function resizeImage(file, maxDim = 1400) {
         canvas.toBlob(
           (blob) => resolve(new File([blob], file.name, { type: "image/jpeg" })),
           "image/jpeg",
-          0.88
+          0.82
         );
       };
       img.src = e.target.result;
@@ -46,7 +46,7 @@ function resizeImage(file, maxDim = 1400) {
   });
 }
 
-function StatusDot({ status }) {
+const StatusDot = memo(function StatusDot({ status }) {
   const color =
     status === "done" ? "var(--teal)" :
     status === "error" ? "var(--red)" :
@@ -64,7 +64,48 @@ function StatusDot({ status }) {
       {label}
     </span>
   );
-}
+});
+
+// Memoized filmstrip row. Because processOne() only replaces the object for
+// the item that actually changed (see setItems below), unrelated rows keep
+// the same object reference across renders — React.memo bails out and skips
+// re-rendering them. This turns a full-list re-render on every status
+// change (O(n) work per update, O(n²) over a whole batch) into O(1) work
+// per update, which is the main fix for batch-mode lag.
+const FilmstripRow = memo(function FilmstripRow({ item, idx, isActive, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(idx)}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, width: "100%",
+        padding: "8px", marginBottom: 4, borderRadius: 6,
+        background: isActive ? "var(--panel-raised)" : "transparent",
+        border: isActive ? "1px solid var(--border)" : "1px solid transparent",
+        cursor: "pointer", textAlign: "left",
+      }}
+    >
+      <span style={{
+        width: 34, height: 34, borderRadius: 4, background: "var(--panel-raised)",
+        flexShrink: 0, overflow: "hidden",
+      }}>
+        <img
+          src={item.previewUrl}
+          alt=""
+          loading="lazy"
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+        />
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          {item.filename}
+        </div>
+        <StatusDot status={item.status} />
+      </span>
+    </button>
+  );
+});
 
 function KeywordChip({ text, onRemove }) {
   return (
@@ -98,7 +139,16 @@ export default function Home() {
   const [activeIndex, setActiveIndex] = useState(null);
   const [activeTab, setActiveTab] = useState("adobe_stock");
   const [running, setRunning] = useState(false);
+
+  // Stable identity across renders (empty dep array), so passing it as a
+  // prop to memoized FilmstripRow never breaks the memo comparison.
+  const selectItem = useCallback((idx) => {
+    setActiveIndex(idx);
+    setActiveTab("adobe_stock");
+  }, []);
   const fileInputRef = useRef(null);
+  const filmstripRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -193,11 +243,17 @@ export default function Home() {
       return;
     }
     setRunning(true);
-    const concurrency = 3;
-    let cursor = 0;
     const pending = items
       .map((it, idx) => ({ it, idx }))
       .filter((x) => x.it.status === "pending" || x.it.status === "error");
+
+    // Scale concurrency down for larger batches. At 3 parallel requests,
+    // a 50-100 image batch can burn through Gemini's free-tier per-minute
+    // rate limit fast, which cascades through the whole model fallback
+    // chain on every image instead of just the busy one. 2 parallel is
+    // slower per-image but noticeably more stable for big batches.
+    const concurrency = pending.length > 30 ? 2 : 3;
+    let cursor = 0;
 
     async function runner() {
       while (cursor < pending.length) {
@@ -260,44 +316,49 @@ export default function Home() {
           />
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
+        <div
+          ref={filmstripRef}
+          onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+          style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}
+        >
           {items.length === 0 && (
             <div style={{ padding: "24px 12px", color: "var(--text-faint)", fontSize: 12.5, lineHeight: 1.6 }}>
               No images yet. Add a few to start generating metadata.
             </div>
           )}
-          {items.map((it, idx) => (
-            <button
-              key={idx}
-              onClick={() => { setActiveIndex(idx); setActiveTab("adobe_stock"); }}
-              style={{
-                display: "flex", alignItems: "center", gap: 10, width: "100%",
-                padding: "8px", marginBottom: 4, borderRadius: 6,
-                background: activeIndex === idx ? "var(--panel-raised)" : "transparent",
-                border: activeIndex === idx ? "1px solid var(--border)" : "1px solid transparent",
-                cursor: "pointer", textAlign: "left",
-              }}
-            >
-              <span style={{
-                width: 34, height: 34, borderRadius: 4, background: "var(--panel-raised)",
-                flexShrink: 0, overflow: "hidden",
-              }}>
-                <img
-                  src={it.previewUrl}
-                  alt=""
-                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                />
-              </span>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 12.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                }}>
-                  {it.filename}
+          {items.length > 0 && (() => {
+            // Manual windowing: only mount rows currently in/near the
+            // visible scroll range. At 50-100 images this is the difference
+            // between ~100 live DOM nodes+images and ~15-20 — noticeably
+            // less scroll jank than rendering the whole batch at once.
+            const ROW_H = 50; // approx row height incl. margin
+            const containerH = filmstripRef.current?.clientHeight || 600;
+            const overscan = 6;
+            const startIdx = Math.max(0, Math.floor(scrollTop / ROW_H) - overscan);
+            const endIdx = Math.min(
+              items.length,
+              Math.ceil((scrollTop + containerH) / ROW_H) + overscan
+            );
+            const visible = items.slice(startIdx, endIdx);
+            return (
+              <div style={{ height: items.length * ROW_H, position: "relative" }}>
+                <div style={{ position: "absolute", top: startIdx * ROW_H, left: 0, right: 0 }}>
+                  {visible.map((it, i) => {
+                    const idx = startIdx + i;
+                    return (
+                      <FilmstripRow
+                        key={idx}
+                        item={it}
+                        idx={idx}
+                        isActive={activeIndex === idx}
+                        onSelect={selectItem}
+                      />
+                    );
+                  })}
                 </div>
-                <StatusDot status={it.status} />
-              </span>
-            </button>
-          ))}
+              </div>
+            );
+          })()}
         </div>
 
         <div style={{ padding: 12, borderTop: "1px solid var(--border-soft)" }}>
