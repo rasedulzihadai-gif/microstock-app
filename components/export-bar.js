@@ -8,7 +8,7 @@ const EXPORTS = [
   { key: "freepik_vecteezy", label: "Freepik" },
 ];
 
-export function ExportBar({ count, onExport }) {
+export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated }) {
   return (
     <footer className="exportbar">
       <span className="exportbar__label">
@@ -20,6 +20,17 @@ export function ExportBar({ count, onExport }) {
           {e.label}
         </button>
       ))}
+      <label
+        className="exportbar__ai-toggle"
+        title="Freepik requires AI-generated content to carry the _ai_generated keyword. Turn this on when your images were made with AI — it is added to the Freepik CSV automatically."
+      >
+        <input
+          type="checkbox"
+          checked={aiGenerated}
+          onChange={(e) => onToggleAiGenerated(e.target.checked)}
+        />
+        AI-generated
+      </label>
     </footer>
   );
 }
