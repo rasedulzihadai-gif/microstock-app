@@ -1,14 +1,11 @@
-function csvEscape(value, delimiter) {
+function csvEscape(value) {
   const s = String(value ?? "");
-  // Freepik's format always quotes every field, per their spec — quote
-  // unconditionally when delimiter is ";" to match exactly.
-  if (delimiter === ";") return `"${s.replace(/"/g, '""')}"`;
-  if (new RegExp(`[",${delimiter}\n]`).test(s)) return `"${s.replace(/"/g, '""')}"`;
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
-function toCsv(rows, delimiter = ",") {
-  return rows.map((row) => row.map((v) => csvEscape(v, delimiter)).join(delimiter)).join("\r\n");
+function toCsv(rows) {
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\r\n");
 }
 
 // Adobe Stock (helpx.adobe.com — "Organize with CSV files"): Filename,
@@ -53,37 +50,32 @@ export function buildShutterstockCsv(items) {
   return toCsv(rows);
 }
 
-// Freepik official bulk-CSV spec (support.freepik.com — "How to create a
-// csv file"): semicolon-delimited, every field double-quoted, columns
-// File name;Title;Keywords, keywords stay comma-joined INSIDE the quoted
-// keywords field. We emit CRLF + quote-everything here, matching what
-// "CSV (MS-DOS)" export produces, so no extra save-as step is needed.
+// Freepik official bulk-CSV spec, re-verified directly against their live
+// support article (support.freepik.com / magnific.com "How to create a
+// csv file"): semicolon-delimited, and — this is the part that was wrong
+// before — every field wrapped in SINGLE quotes, not double quotes. Their
+// own example row is literally:
+//   'beautiful-sunset.jpg';'Beautiful sunset';'sunset,sun,summer,beach,mountain'
+// Keywords stay comma-joined INSIDE that single-quoted keywords field.
+// No header row in their examples, so we don't emit one either.
+function csvEscapeFreepik(value) {
+  const s = String(value ?? "");
+  // Double up any embedded single quote, the same escaping convention as
+  // doubling double-quotes in standard CSV.
+  return `'${s.replace(/'/g, "''")}'`;
+}
+
+function toFreepikCsv(rows) {
+  return rows.map((row) => row.map(csvEscapeFreepik).join(";")).join("\r\n");
+}
+
 export function buildFreepikCsv(items) {
-  const header = ["Filename", "Title", "Keywords"];
-  const rows = [header];
+  const rows = [];
   for (const it of items) {
     const meta = it.result.platforms.freepik_vecteezy;
     rows.push([it.filename, meta.title, meta.keywords.join(",")]);
   }
-  return toCsv(rows, ";");
-}
-
-// Vecteezy official CSV spec (vecteezy.com blog — "Contributors: Use a CSV
-// to Upload Metadata Faster" / eezycontributors Zendesk "CSV Metadata
-// Upload"): standard comma-delimited CSV, columns in this exact order —
-// Filename, Title, Description, Keywords. Unlike Freepik this is NOT
-// semicolon-delimited and fields aren't force-quoted, so it can't just
-// reuse buildFreepikCsv's output — that's why the two were failing when
-// treated as one combined "freepik_vecteezy" export.
-export function buildVecteezyCsv(items) {
-  const header = ["Filename", "Title", "Description", "Keywords"];
-  const rows = [header];
-  for (const it of items) {
-    const meta = it.result.platforms.freepik_vecteezy;
-    const description = it.result.description || meta.title;
-    rows.push([it.filename, meta.title, description, meta.keywords.join(", ")]);
-  }
-  return toCsv(rows, ",");
+  return toFreepikCsv(rows);
 }
 
 // iStock / Getty Images (via Getty's ESP CSV import + third-party tools
