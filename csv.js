@@ -8,10 +8,17 @@ function toCsv(rows) {
   return rows.map((row) => row.map(csvEscape).join(",")).join("\r\n");
 }
 
-// Adobe Stock (helpx.adobe.com — "Organize with CSV files"): Filename,
-// Title, Keywords, Category, Releases. Required columns are Filename,
-// Title, Keywords. Adobe also caps a single CSV at 5,000 rows and 1MB —
-// batch above that into multiple files if you ever scale up that far.
+// Adobe Stock (helpx.adobe.com — "CSV requirements for Adobe Stock", "Organize
+// with CSV files"): Filename, Title, Keywords, Category, Releases. Required
+// columns are Filename, Title, Keywords. Adobe also caps a single CSV at
+// 5,000 rows and 1MB — batch above that into multiple files if you ever
+// scale up that far.
+//
+// IMPORTANT: Adobe caps Filename at 30 characters, and the CSV filename
+// must match the uploaded file's name exactly — so a long name can't be
+// silently shortened here without breaking that match. getAdobeFilenameWarnings()
+// below flags any offenders so the UI can tell the user to rename the
+// actual file (not just the CSV row) before uploading.
 export function buildAdobeStockCsv(items) {
   const header = ["Filename", "Title", "Keywords", "Category", "Releases"];
   const rows = [header];
@@ -21,6 +28,12 @@ export function buildAdobeStockCsv(items) {
     rows.push([it.filename, title, meta.keywords.slice(0, 50).join(", "), "", ""]);
   }
   return toCsv(rows);
+}
+
+export function getAdobeFilenameWarnings(items) {
+  return items
+    .map((it) => it.filename)
+    .filter((name) => name.length > 30);
 }
 
 // Shutterstock: Filename, Description, Keywords, Categories, Illustration, Mature content, Editorial

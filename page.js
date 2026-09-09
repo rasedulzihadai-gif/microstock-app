@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { buildAdobeStockCsv, buildShutterstockCsv, buildFreepikCsv, buildVecteezyCsv, buildIstockGettyCsv, downloadCsv } from "../lib/csv";
+import { buildAdobeStockCsv, buildShutterstockCsv, buildFreepikCsv, buildIstockGettyCsv, getAdobeFilenameWarnings, downloadCsv } from "../lib/csv";
 
 const PLATFORM_TABS = [
   { key: "adobe_stock", label: "Adobe Stock" },
@@ -282,10 +282,19 @@ export default function Home() {
 
   function exportCsv(platform) {
     let csv, name;
-    if (platform === "adobe_stock") { csv = buildAdobeStockCsv(doneItems); name = "adobe_stock.csv"; }
+    if (platform === "adobe_stock") {
+      csv = buildAdobeStockCsv(doneItems);
+      name = "adobe_stock.csv";
+      const longNames = getAdobeFilenameWarnings(doneItems);
+      if (longNames.length > 0) {
+        alert(
+          `Heads up: Adobe Stock caps filenames at 30 characters. ${longNames.length} file(s) exceed that and will be rejected unless you rename the actual files (not just the CSV row) before uploading:\n\n` +
+          longNames.join("\n")
+        );
+      }
+    }
     else if (platform === "shutterstock") { csv = buildShutterstockCsv(doneItems); name = "shutterstock.csv"; }
     else if (platform === "freepik_vecteezy") { csv = buildFreepikCsv(doneItems); name = "freepik.csv"; }
-    else if (platform === "vecteezy") { csv = buildVecteezyCsv(doneItems); name = "vecteezy.csv"; }
     else if (platform === "istock_getty") { csv = buildIstockGettyCsv(doneItems); name = "istock_getty.csv"; }
     else { csv = ""; name = `${platform}.csv`; }
     downloadCsv(csv, name);
@@ -503,7 +512,6 @@ export default function Home() {
               <button onClick={() => exportCsv("shutterstock")} style={ghostBtn}>Shutterstock CSV</button>
               <button onClick={() => exportCsv("istock_getty")} style={ghostBtn}>iStock CSV</button>
               <button onClick={() => exportCsv("freepik_vecteezy")} style={ghostBtn}>Freepik CSV</button>
-              <button onClick={() => exportCsv("vecteezy")} style={ghostBtn}>Vecteezy CSV</button>
             </div>
             <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
               Note: iStock/Getty validates keywords against their own controlled vocabulary — review that CSV in their submission tool before final upload.
