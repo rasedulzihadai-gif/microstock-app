@@ -1,6 +1,6 @@
 "use client";
 import { StatusDot } from "./status-dot";
-import { IconPlus, IconSparkles, IconX, IconTag } from "./icons";
+import { IconPlus, IconSparkles, IconX } from "./icons";
 
 export function Sidebar({
   items,
@@ -17,8 +17,8 @@ export function Sidebar({
   return (
     <aside className="sidebar" aria-label="Image queue">
       <div className="sidebar__brand">
-        <span className="brand-mark">
-          <IconTag width={15} height={15} />
+        <span className="brand-mark brand-mark--logo">
+          <img src="/icon-192.png" alt="Lightbox" />
         </span>
         <div>
           <div className="brand-name">Lightbox</div>
