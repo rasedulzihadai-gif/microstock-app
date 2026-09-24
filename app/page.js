@@ -54,6 +54,7 @@ export default function Home() {
   const [activeIndex, setActiveIndex] = useState(null);
   const [activeTab, setActiveTab] = useState("adobe_stock");
   const [running, setRunning] = useState(false);
+  const [aiGenerated, setAiGenerated] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const itemsRef = useRef(items);
@@ -286,7 +287,14 @@ export default function Home() {
           </div>
         </div>
 
-        {doneItems.length > 0 && <ExportBar count={doneItems.length} onExport={exportCsv} />}
+        {doneItems.length > 0 && (
+          <ExportBar
+            count={doneItems.length}
+            onExport={exportCsv}
+            aiGenerated={aiGenerated}
+            onToggleAiGenerated={setAiGenerated}
+          />
+        )}
       </main>
 
       {showSettings && (
