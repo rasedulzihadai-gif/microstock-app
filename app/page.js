@@ -1,6 +1,13 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { buildAdobeStockCsv, buildShutterstockCsv, buildGenericCsv, downloadCsv } from "../lib/csv";
+import {
+  buildAdobeStockCsv,
+  buildShutterstockCsv,
+  buildFreepikCsv,
+  buildIstockGettyCsv,
+  buildGenericCsv,
+  downloadCsv,
+} from "../lib/csv";
 import { Sidebar } from "../components/sidebar";
 import { Inspector } from "../components/inspector";
 import { SettingsDrawer } from "../components/settings-drawer";
@@ -46,9 +53,24 @@ function resizeImage(file, maxDim = 1400) {
 }
 
 export default function Home() {
-  const [apiKey, setApiKey] = useState("");
+  const [activeProvider, setActiveProvider] = useState("gemini");
+  const [apiKeys, setApiKeys] = useState({
+    gemini: "",
+    deepseek: "",
+    mistral: "",
+  });
+  const [keyStatuses, setKeyStatuses] = useState({
+    gemini: "not-set",
+    deepseek: "not-set",
+    mistral: "not-set",
+  });
+  const [testFeedback, setTestFeedback] = useState({
+    gemini: null,
+    deepseek: null,
+    mistral: null,
+  });
+
   const [showSettings, setShowSettings] = useState(false);
-  const [keyStatus, setKeyStatus] = useState("not-set");
   const [context, setContext] = useState("");
   const [items, setItems] = useState([]);
   const [activeIndex, setActiveIndex] = useState(null);
@@ -60,12 +82,27 @@ export default function Home() {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
+  // Load saved provider & keys from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem("mstock_gemini_key");
-    if (saved) {
-      setApiKey(saved);
-      setKeyStatus("connected");
-    }
+    const savedProvider = localStorage.getItem("mstock_active_provider") || "gemini";
+    setActiveProvider(savedProvider);
+
+    const geminiKey = localStorage.getItem("mstock_key_gemini") || localStorage.getItem("mstock_gemini_key") || "";
+    const deepseekKey = localStorage.getItem("mstock_key_deepseek") || "";
+    const mistralKey = localStorage.getItem("mstock_key_mistral") || "";
+
+    const loadedKeys = {
+      gemini: geminiKey,
+      deepseek: deepseekKey,
+      mistral: mistralKey,
+    };
+    setApiKeys(loadedKeys);
+
+    setKeyStatuses({
+      gemini: geminiKey ? "connected" : "not-set",
+      deepseek: deepseekKey ? "connected" : "not-set",
+      mistral: mistralKey ? "connected" : "not-set",
+    });
   }, []);
 
   useEffect(() => {
@@ -74,24 +111,76 @@ export default function Home() {
     };
   }, []);
 
-  function saveKey() {
-    localStorage.setItem("mstock_gemini_key", apiKey);
-    setKeyStatus(apiKey ? "connected" : "not-set");
+  function handleProviderChange(providerId) {
+    setActiveProvider(providerId);
+    localStorage.setItem("mstock_active_provider", providerId);
   }
 
-  function clearKey() {
-    localStorage.removeItem("mstock_gemini_key");
-    setApiKey("");
-    setKeyStatus("not-set");
+  function handleApiKeyChange(providerId, value) {
+    setApiKeys((prev) => ({ ...prev, [providerId]: value }));
+    setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
   }
 
-  async function testConnection() {
-    setKeyStatus("testing");
+  function handleSaveKey(providerId) {
+    const key = apiKeys[providerId]?.trim() || "";
+    localStorage.setItem(`mstock_key_${providerId}`, key);
+    if (providerId === "gemini") {
+      localStorage.setItem("mstock_gemini_key", key);
+    }
+    setKeyStatuses((prev) => ({
+      ...prev,
+      [providerId]: key ? "connected" : "not-set",
+    }));
+    setTestFeedback((prev) => ({
+      ...prev,
+      [providerId]: key ? { ok: true, message: "Key saved locally." } : null,
+    }));
+  }
+
+  function handleClearKey(providerId) {
+    localStorage.removeItem(`mstock_key_${providerId}`);
+    if (providerId === "gemini") {
+      localStorage.removeItem("mstock_gemini_key");
+    }
+    setApiKeys((prev) => ({ ...prev, [providerId]: "" }));
+    setKeyStatuses((prev) => ({ ...prev, [providerId]: "not-set" }));
+    setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
+  }
+
+  async function handleTestConnection(providerId) {
+    const key = apiKeys[providerId]?.trim();
+    if (!key) return;
+
+    setKeyStatuses((prev) => ({ ...prev, [providerId]: "testing" }));
+    setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
+
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      setKeyStatus(res.ok ? "connected" : "invalid");
-    } catch {
-      setKeyStatus("invalid");
+      const res = await fetch("/api/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: providerId, apiKey: key }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.ok) {
+        setKeyStatuses((prev) => ({ ...prev, [providerId]: "connected" }));
+        setTestFeedback((prev) => ({
+          ...prev,
+          [providerId]: { ok: true, message: data.message || "Connection succeeded!" },
+        }));
+      } else {
+        setKeyStatuses((prev) => ({ ...prev, [providerId]: "invalid" }));
+        setTestFeedback((prev) => ({
+          ...prev,
+          [providerId]: { ok: false, message: data.error || "Connection test failed." },
+        }));
+      }
+    } catch (err) {
+      setKeyStatuses((prev) => ({ ...prev, [providerId]: "invalid" }));
+      setTestFeedback((prev) => ({
+        ...prev,
+        [providerId]: { ok: false, message: `Network error: ${String(err.message || err)}` },
+      }));
     }
   }
 
@@ -129,18 +218,35 @@ export default function Home() {
   }
 
   async function processOne(index) {
+    const currentKey = apiKeys[activeProvider]?.trim();
+    if (!currentKey) {
+      setShowSettings(true);
+      return;
+    }
+
     setItems((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], status: "processing", error: null };
       return copy;
     });
+
     try {
       const resized = await resizeImage(itemsRef.current[index].file);
       const base64 = await fileToBase64(resized);
       const res = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Provider-Key": apiKey },
-        body: JSON.stringify({ imageBase64: base64, mimeType: "image/jpeg", context }),
+        headers: {
+          "Content-Type": "application/json",
+          "X-Provider": activeProvider,
+          "X-Provider-Key": currentKey,
+        },
+        body: JSON.stringify({
+          provider: activeProvider,
+          apiKey: currentKey,
+          imageBase64: base64,
+          mimeType: "image/jpeg",
+          context,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
@@ -159,10 +265,12 @@ export default function Home() {
   }
 
   async function runBatch() {
-    if (!apiKey) {
+    const currentKey = apiKeys[activeProvider]?.trim();
+    if (!currentKey) {
       setShowSettings(true);
       return;
     }
+
     setRunning(true);
     const concurrency = 3;
     let cursor = 0;
@@ -197,9 +305,22 @@ export default function Home() {
 
   function exportCsv(platform) {
     let csv, name;
-    if (platform === "adobe_stock") { csv = buildAdobeStockCsv(doneItems); name = "adobe_stock.csv"; }
-    else if (platform === "shutterstock") { csv = buildShutterstockCsv(doneItems); name = "shutterstock.csv"; }
-    else { csv = buildGenericCsv(doneItems, platform); name = `${platform}.csv`; }
+    if (platform === "adobe_stock") {
+      csv = buildAdobeStockCsv(doneItems);
+      name = "adobe_stock.csv";
+    } else if (platform === "shutterstock") {
+      csv = buildShutterstockCsv(doneItems);
+      name = "shutterstock.csv";
+    } else if (platform === "freepik_vecteezy") {
+      csv = buildFreepikCsv(doneItems, { aiGenerated });
+      name = "freepik.csv";
+    } else if (platform === "istock_getty") {
+      csv = buildIstockGettyCsv(doneItems);
+      name = "istock_getty.csv";
+    } else {
+      csv = buildGenericCsv(doneItems, platform);
+      name = `${platform}.csv`;
+    }
     downloadCsv(csv, name);
   }
 
@@ -222,6 +343,8 @@ export default function Home() {
     if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
   }
 
+  const currentStatus = keyStatuses[activeProvider] || "not-set";
+
   return (
     <div className="app">
       <Sidebar
@@ -230,7 +353,10 @@ export default function Home() {
         running={running}
         doneCount={doneItems.length}
         onAddClick={openPicker}
-        onSelect={(idx) => { setActiveIndex(idx); setActiveTab("adobe_stock"); }}
+        onSelect={(idx) => {
+          setActiveIndex(idx);
+          setActiveTab("adobe_stock");
+        }}
         onRemove={removeItem}
         onRunBatch={runBatch}
       />
@@ -241,7 +367,10 @@ export default function Home() {
         accept="image/*"
         className="sr-only"
         tabIndex={-1}
-        onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
       />
 
       <main className="main" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
@@ -254,19 +383,19 @@ export default function Home() {
               className="input"
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder="Optional context for every image — e.g. corporate, wedding, nature/travel"
+              placeholder="Optional SEO context / niche hint — e.g. corporate teamwork, sustainable eco energy, travel lifestyle"
               aria-label="Generation context"
             />
           </div>
           <button className="btn btn--ghost" onClick={() => setShowSettings(true)}>
             <span
-              className={`status status--${keyStatus === "connected" ? "done" : "pending"}`}
+              className={`status status--${currentStatus === "connected" ? "done" : "pending"}`}
               style={{ gap: 0 }}
             >
               <span className="status__dot" />
             </span>
             <IconSettings width={14} height={14} />
-            Settings
+            Settings ({activeProvider === "mistral" ? "Mistral" : activeProvider === "deepseek" ? "DeepSeek" : "Gemini"})
           </button>
         </header>
 
@@ -299,12 +428,15 @@ export default function Home() {
 
       {showSettings && (
         <SettingsDrawer
-          apiKey={apiKey}
-          keyStatus={keyStatus}
-          onChangeKey={setApiKey}
-          onSave={saveKey}
-          onTest={testConnection}
-          onClear={clearKey}
+          activeProvider={activeProvider}
+          onChangeProvider={handleProviderChange}
+          apiKeys={apiKeys}
+          onChangeApiKey={handleApiKeyChange}
+          keyStatuses={keyStatuses}
+          testFeedback={testFeedback}
+          onSave={handleSaveKey}
+          onTest={handleTestConnection}
+          onClear={handleClearKey}
           onClose={closeSettings}
         />
       )}

@@ -141,9 +141,10 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
             </div>
           )}
 
-          {item.result._meta?.fellBack && (
+          {item.result._meta && (
             <p className="notice notice--muted" style={{ margin: 0 }}>
-              Primary model was busy — answered by {item.result._meta.modelUsed} instead.
+              Generated with {item.result._meta.provider ? item.result._meta.provider.toUpperCase() : "AI"} ({item.result._meta.modelUsed})
+              {item.result._meta.fellBack ? " • Primary model was busy, fallback used" : ""}
             </p>
           )}
         </>
