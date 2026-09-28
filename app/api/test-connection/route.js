@@ -24,6 +24,34 @@ export async function POST(req) {
       );
     }
 
+    if (provider === "agnes") {
+      const res = await fetch("https://apihub.agnes-ai.com/v1/models", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return Response.json({ ok: true, provider: "agnes", message: "Agnes AI API connected successfully." });
+      }
+      return Response.json(
+        { ok: false, error: data?.error?.message || data?.message || `Agnes AI authentication failed (status ${res.status}).` },
+        { status: res.status }
+      );
+    }
+
+    if (provider === "openrouter") {
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return Response.json({ ok: true, provider: "openrouter", message: "OpenRouter API connected successfully." });
+      }
+      return Response.json(
+        { ok: false, error: data?.error?.message || `OpenRouter authentication failed (status ${res.status}).` },
+        { status: res.status }
+      );
+    }
+
     if (provider === "mistral") {
       const res = await fetch("https://api.mistral.ai/v1/models", {
         headers: { Authorization: `Bearer ${key}` },

@@ -8,14 +8,14 @@ const EXPORTS = [
   { key: "freepik_vecteezy", label: "Freepik" },
 ];
 
-export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated }) {
+export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated, availablePlatforms = [] }) {
   return (
     <footer className="exportbar">
       <span className="exportbar__label">
         <IconDownload width={14} height={14} />
         Export <strong>{count}</strong> ready as CSV
       </span>
-      {EXPORTS.map((e) => (
+      {EXPORTS.filter((e) => availablePlatforms.includes(e.key)).map((e) => (
         <button key={e.key} className="btn btn--ghost btn--sm" onClick={() => onExport(e.key)}>
           {e.label}
         </button>

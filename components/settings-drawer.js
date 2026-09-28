@@ -34,6 +34,26 @@ export const PROVIDERS = [
     models: ["pixtral-12b-2409", "pixtral-large-latest"],
     hint: "Mistral Pixtral multimodal model specialized in visual reasoning.",
   },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    badge: "Multi-model Vision",
+    placeholder: "sk-or-v1-...",
+    link: "https://openrouter.ai/settings/keys",
+    linkLabel: "openrouter.ai",
+    models: ["google/gemini-2.5-flash", "openai/gpt-4.1-mini", "qwen/qwen2.5-vl-72b-instruct"],
+    hint: "Use one OpenRouter key with an automatic fallback across vision-capable models.",
+  },
+  {
+    id: "agnes",
+    name: "Agnes AI",
+    badge: "Multimodal",
+    placeholder: "sk-...",
+    link: "https://platform.agnes-ai.com/",
+    linkLabel: "platform.agnes-ai.com",
+    models: ["agnes-3.0-flash", "agnes-2.5-pro", "agnes-2.5-flash"],
+    hint: "Agnes AI's OpenAI-compatible multimodal API for image understanding and metadata generation.",
+  },
 ];
 
 const STATUS_MAP = {
