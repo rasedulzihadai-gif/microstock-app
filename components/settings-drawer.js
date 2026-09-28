@@ -54,6 +54,15 @@ export const PROVIDERS = [
     models: ["agnes-3.0-flash", "agnes-2.5-pro", "agnes-2.5-flash"],
     hint: "Agnes AI's OpenAI-compatible multimodal API for image understanding and metadata generation.",
   },
+  {
+    id: "ollama",
+    name: "Ollama",
+    badge: "Local vision",
+    link: "https://ollama.com/download",
+    linkLabel: "ollama.com",
+    models: ["llama3.2-vision", "llava", "qwen2.5vl"],
+    hint: "Run a vision model through your own Ollama server. Native Ollama does not require an API key.",
+  },
 ];
 
 const STATUS_MAP = {
@@ -68,6 +77,8 @@ export function SettingsDrawer({
   onChangeProvider,
   apiKeys = {},
   onChangeApiKey,
+  ollamaConfig = {},
+  onChangeOllamaConfig,
   keyStatuses = {},
   testFeedback = {},
   onSave,
@@ -86,9 +97,14 @@ export function SettingsDrawer({
   }, [onClose]);
 
   const currentProviderConfig = PROVIDERS.find((p) => p.id === activeProvider) || PROVIDERS[0];
+  const isOllama = activeProvider === "ollama";
   const currentKey = apiKeys[activeProvider] || "";
   const currentStatus = keyStatuses[activeProvider] || "not-set";
   const currentFeedback = testFeedback[activeProvider] || null;
+  const ollamaReady = Boolean(ollamaConfig.baseUrl?.trim() && ollamaConfig.model?.trim());
+  const statusInfo = isOllama && currentStatus === "invalid"
+    ? { status: "error", label: "Connection failed" }
+    : (STATUS_MAP[currentStatus] ?? STATUS_MAP["not-set"]);
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -134,44 +150,89 @@ export function SettingsDrawer({
             </div>
           </div>
 
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-              <label htmlFor="api-key-input" className="field__label">
-                {currentProviderConfig.name} API Key
-              </label>
-              {currentKey && (
-                <button
-                  type="button"
-                  className="btn btn--subtle btn--sm"
-                  style={{ height: 20, fontSize: 11, padding: "0 4px" }}
-                  onClick={() => setShowKey(!showKey)}
-                >
-                  {showKey ? "Hide" : "Show"}
-                </button>
-              )}
+          {isOllama ? (
+            <>
+              <div>
+                <label htmlFor="ollama-url-input" className="field__label" style={{ display: "block", marginBottom: 8 }}>
+                  Ollama server URL
+                </label>
+                <input
+                  id="ollama-url-input"
+                  className="input"
+                  type="url"
+                  value={ollamaConfig.baseUrl || ""}
+                  onChange={(e) => onChangeOllamaConfig({ ...ollamaConfig, baseUrl: e.target.value })}
+                  placeholder="http://127.0.0.1:11434"
+                  autoComplete="url"
+                  spellCheck={false}
+                />
+              </div>
+
+              <div>
+                <label htmlFor="ollama-model-input" className="field__label" style={{ display: "block", marginBottom: 8 }}>
+                  Installed vision model
+                </label>
+                <input
+                  id="ollama-model-input"
+                  className="input"
+                  value={ollamaConfig.model || ""}
+                  onChange={(e) => onChangeOllamaConfig({ ...ollamaConfig, model: e.target.value })}
+                  placeholder="llama3.2-vision"
+                  list="ollama-vision-models"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <datalist id="ollama-vision-models">
+                  {currentProviderConfig.models.map((model) => <option key={model} value={model} />)}
+                </datalist>
+              </div>
+            </>
+          ) : (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                <label htmlFor="api-key-input" className="field__label">
+                  {currentProviderConfig.name} API Key
+                </label>
+                {currentKey && (
+                  <button
+                    type="button"
+                    className="btn btn--subtle btn--sm"
+                    style={{ height: 20, fontSize: 11, padding: "0 4px" }}
+                    onClick={() => setShowKey(!showKey)}
+                  >
+                    {showKey ? "Hide" : "Show"}
+                  </button>
+                )}
+              </div>
+              <input
+                id="api-key-input"
+                className="input"
+                type={showKey ? "text" : "password"}
+                value={currentKey}
+                onChange={(e) => onChangeApiKey(activeProvider, e.target.value)}
+                placeholder={currentProviderConfig.placeholder}
+                autoComplete="off"
+                spellCheck={false}
+              />
             </div>
-            <input
-              id="api-key-input"
-              className="input"
-              type={showKey ? "text" : "password"}
-              value={currentKey}
-              onChange={(e) => onChangeApiKey(activeProvider, e.target.value)}
-              placeholder={currentProviderConfig.placeholder}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
+          )}
 
           <p className="drawer__text">
-            {currentProviderConfig.hint} Get your key from{" "}
+            {currentProviderConfig.hint}{" "}
             <a href={currentProviderConfig.link} target="_blank" rel="noreferrer">
-              {currentProviderConfig.linkLabel}
+              {isOllama ? "Install Ollama" : currentProviderConfig.linkLabel}
             </a>
-            . Keys are stored locally in your browser and never logged.
+            {isOllama ? (
+              <> and run <code>ollama pull {ollamaConfig.model || "llama3.2-vision"}</code>. For a deployed app, use an Ollama URL reachable from the app server rather than your browser’s localhost.</>
+            ) : (
+              <>. Keys are stored locally in your browser and never logged.</>
+            )}
           </p>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>Fallback models:</span>
+            <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+              {isOllama ? "Suggested vision models:" : "Fallback models:"}
+            </span>
             {currentProviderConfig.models.map((m) => (
               <span key={m} className="drawer__model-tag">
                 {m}
@@ -181,29 +242,29 @@ export function SettingsDrawer({
 
           <div className="drawer__row">
             <button className="btn btn--primary" onClick={() => onSave(activeProvider)}>
-              Save key
+              {isOllama ? "Save settings" : "Save key"}
             </button>
             <button
               className="btn btn--ghost"
               onClick={() => onTest(activeProvider)}
-              disabled={!currentKey || currentStatus === "testing"}
+              disabled={isOllama ? !ollamaReady || currentStatus === "testing" : !currentKey || currentStatus === "testing"}
             >
               Test connection
             </button>
             <button
               className="btn btn--subtle"
               onClick={() => onClear(activeProvider)}
-              disabled={!currentKey}
+              disabled={isOllama ? !ollamaReady : !currentKey}
             >
-              Clear
+              {isOllama ? "Reset" : "Clear"}
             </button>
           </div>
 
           <div className="drawer__status">
             <span>Connection Status</span>
             <StatusDot
-              status={(STATUS_MAP[currentStatus] ?? STATUS_MAP["not-set"]).status}
-              label={(STATUS_MAP[currentStatus] ?? STATUS_MAP["not-set"]).label}
+              status={statusInfo.status}
+              label={statusInfo.label}
               pill
             />
           </div>

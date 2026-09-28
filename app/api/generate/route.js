@@ -1,5 +1,14 @@
-import { buildPlatformPrompt, FALLBACK_REMINDER, PLATFORM_NAMES } from "../../../lib/prompt";
+import {
+  buildPlatformPrompt,
+  FALLBACK_REMINDER,
+  isSupportedTargetPlatform,
+} from "../../../lib/prompt";
 import { enforceOutputRules } from "../../../lib/enforce-rules";
+import {
+  DEFAULT_OLLAMA_MODEL,
+  getOllamaApiUrl,
+  normalizeOllamaBaseUrl,
+} from "../../../lib/ollama";
 
 export const maxDuration = 60;
 
@@ -30,6 +39,9 @@ const PROVIDER_FALLBACK_CHAINS = {
     "agnes-2.5-pro",
     "agnes-2.5-flash",
   ],
+  // Ollama uses the model selected in Settings rather than a cloud fallback.
+  // Only models installed on that server can be used.
+  ollama: [],
 };
 
 function isRetryableStatus(status) {
@@ -145,6 +157,32 @@ async function callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imag
   return { ok: res.ok, status: res.status, data };
 }
 
+async function callOllama(modelId, baseUrl, systemPrompt, userText, imageBase64) {
+  const res = await fetch(getOllamaApiUrl(baseUrl, "/api/chat"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      stream: false,
+      // Ollama's JSON mode helps keep the result parseable while the prompt
+      // specifies the schema and still works with vision-capable local models.
+      format: "json",
+      options: { temperature: 0.35 },
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: userText,
+          // The native Ollama API expects raw base64 image data, not a data URL.
+          images: [imageBase64],
+        },
+      ],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
 async function callMistral(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
   const url = "https://api.mistral.ai/v1/chat/completions";
   const res = await fetch(url, {
@@ -182,6 +220,9 @@ function extractResponseText(provider, data) {
   if (provider === "gemini") {
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
+  if (provider === "ollama") {
+    return data?.message?.content || "";
+  }
   return data?.choices?.[0]?.message?.content || "";
 }
 
@@ -204,6 +245,8 @@ export async function POST(req) {
 
   const headerProvider = req.headers.get("x-provider");
   const headerKey = req.headers.get("x-provider-key");
+  const headerOllamaBaseUrl = req.headers.get("x-ollama-base-url");
+  const headerOllamaModel = req.headers.get("x-ollama-model");
 
   let provider = (headerProvider || body.provider || "gemini").toLowerCase();
   if (!PROVIDER_FALLBACK_CHAINS[provider]) {
@@ -211,7 +254,19 @@ export async function POST(req) {
   }
 
   const apiKey = headerKey || body.apiKey;
-  if (!apiKey) {
+  let ollamaBaseUrl;
+  let ollamaModel;
+  if (provider === "ollama") {
+    try {
+      ollamaBaseUrl = normalizeOllamaBaseUrl(headerOllamaBaseUrl || body.ollamaBaseUrl);
+    } catch (err) {
+      return Response.json({ error: String(err.message || err) }, { status: 400 });
+    }
+    ollamaModel = String(headerOllamaModel || body.ollamaModel || DEFAULT_OLLAMA_MODEL).trim();
+    if (!ollamaModel) {
+      return Response.json({ error: "Choose an Ollama vision model in Settings first." }, { status: 400 });
+    }
+  } else if (!apiKey) {
     const providerName = provider === "agnes" ? "Agnes AI" : provider === "openrouter" ? "OpenRouter" : provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
     return Response.json(
       { error: `Missing API key. Add your ${providerName} API key in Settings first.` },
@@ -220,7 +275,7 @@ export async function POST(req) {
   }
 
   const { imageBase64, mimeType, context } = body;
-  const targetPlatform = PLATFORM_NAMES[body.targetPlatform] ? body.targetPlatform : "adobe_stock";
+  const targetPlatform = isSupportedTargetPlatform(body.targetPlatform) ? body.targetPlatform : "adobe_stock";
   const systemPrompt = buildPlatformPrompt(targetPlatform);
   if (!imageBase64) {
     return Response.json({ error: "No image provided." }, { status: 400 });
@@ -230,7 +285,9 @@ export async function POST(req) {
     ? `Context / Theme hint: ${context}. Now analyze this image for stock photography SEO metadata.`
     : "Analyze this image for stock photography SEO metadata.";
 
-  const fallbackChain = PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini;
+  const fallbackChain = provider === "ollama"
+    ? [ollamaModel]
+    : (PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini);
   let lastError = null;
   let lastStatus = 500;
 
@@ -248,6 +305,8 @@ export async function POST(req) {
         callResult = await callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else if (provider === "agnes") {
         callResult = await callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "ollama") {
+        callResult = await callOllama(modelId, ollamaBaseUrl, systemPrompt, userText, imageBase64);
       } else {
         callResult = await callGemini(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       }
@@ -255,8 +314,8 @@ export async function POST(req) {
       const { ok, status, data } = callResult;
 
       if (!ok) {
-        lastError = data?.error?.message || data?.message || `${modelId} request failed (status ${status}).`;
-        lastStatus = status === 400 ? 401 : status;
+        lastError = data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `${modelId} request failed (status ${status}).`;
+        lastStatus = status === 400 && provider !== "ollama" ? 401 : status;
         if (!isRetryableStatus(status)) {
           return Response.json(
             { error: lastError, provider, modelTried: modelId },

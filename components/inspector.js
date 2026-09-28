@@ -53,7 +53,7 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
   return (
     <div className="inspector" key={index}>
       <header className="inspector__header">
-        <img className="inspector__preview" src={item.previewUrl} alt={item.filename} />
+        <img className="inspector__preview" src={item.previewUrl} alt={item.filename} decoding="async" />
         <div className="inspector__meta">
           <div className="inspector__title-row">
             <h2 className="inspector__filename">{item.filename}</h2>

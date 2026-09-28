@@ -1,8 +1,59 @@
+import {
+  DEFAULT_OLLAMA_MODEL,
+  getOllamaApiUrl,
+  isOllamaModelAvailable,
+  normalizeOllamaBaseUrl,
+} from "../../../lib/ollama";
+
 export const maxDuration = 15;
 
 export async function POST(req) {
   try {
-    const { provider = "gemini", apiKey } = await req.json();
+    const {
+      provider = "gemini",
+      apiKey,
+      ollamaBaseUrl,
+      ollamaModel = DEFAULT_OLLAMA_MODEL,
+    } = await req.json();
+
+    if (provider === "ollama") {
+      let baseUrl;
+      try {
+        baseUrl = normalizeOllamaBaseUrl(ollamaBaseUrl);
+      } catch (err) {
+        return Response.json({ ok: false, error: String(err.message || err) }, { status: 400 });
+      }
+
+      const model = String(ollamaModel || "").trim();
+      if (!model) {
+        return Response.json({ ok: false, error: "Choose an Ollama vision model first." }, { status: 400 });
+      }
+
+      const res = await fetch(getOllamaApiUrl(baseUrl, "/api/tags"));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return Response.json(
+          { ok: false, error: data?.error || `Ollama connection failed (status ${res.status}).` },
+          { status: res.status }
+        );
+      }
+
+      if (!isOllamaModelAvailable(data?.models, model)) {
+        return Response.json(
+          {
+            ok: false,
+            error: `Ollama is reachable, but “${model}” is not installed. Run “ollama pull ${model}” on that server, or enter an installed vision model.`,
+          },
+          { status: 422 }
+        );
+      }
+
+      return Response.json({
+        ok: true,
+        provider: "ollama",
+        message: `Ollama connected. ${model} is available.`,
+      });
+    }
 
     if (!apiKey || !apiKey.trim()) {
       return Response.json({ ok: false, error: "API key cannot be empty." }, { status: 400 });
