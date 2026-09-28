@@ -101,6 +101,28 @@ export async function POST(req) {
       });
     }
 
+    if (provider === "llm7") {
+      // LLM7.io works anonymously with the literal key "unused" (lower rate limits).
+      const key = String(apiKey || "").trim() || "unused";
+      const res = await fetch("https://api.llm7.io/v1/models", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return Response.json({
+          ok: true,
+          provider: "llm7",
+          message: key === "unused"
+            ? "LLM7.io connected anonymously. Add a free token for higher rate limits."
+            : "LLM7.io connected successfully.",
+        });
+      }
+      return Response.json(
+        { ok: false, error: data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `LLM7.io authentication failed (status ${res.status}).` },
+        { status: res.status }
+      );
+    }
+
     if (!apiKey || !apiKey.trim()) {
       return Response.json({ ok: false, error: "API key cannot be empty." }, { status: 400 });
     }
@@ -117,6 +139,34 @@ export async function POST(req) {
       }
       return Response.json(
         { ok: false, error: data?.error?.message || `DeepSeek authentication failed (status ${res.status}).` },
+        { status: res.status }
+      );
+    }
+
+    if (provider === "chutes") {
+      const res = await fetch("https://llm.chutes.ai/v1/models", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return Response.json({ ok: true, provider: "chutes", message: "Chutes.ai API connected successfully." });
+      }
+      return Response.json(
+        { ok: false, error: data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `Chutes.ai authentication failed (status ${res.status}).` },
+        { status: res.status }
+      );
+    }
+
+    if (provider === "huggingface") {
+      const res = await fetch("https://router.huggingface.co/v1/models", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return Response.json({ ok: true, provider: "huggingface", message: "Hugging Face API connected successfully." });
+      }
+      return Response.json(
+        { ok: false, error: data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `Hugging Face authentication failed (status ${res.status}).` },
         { status: res.status }
       );
     }

@@ -41,6 +41,21 @@ const PROVIDER_FALLBACK_CHAINS = {
     "agnes-2.5-pro",
     "agnes-2.5-flash",
   ],
+  chutes: [
+    "Qwen/Qwen3.6-27B-TEE",
+    "google/gemma-4-31B-turbo-TEE",
+    "moonshotai/Kimi-K2.6-TEE",
+  ],
+  huggingface: [
+    "Qwen/Qwen2.5-VL-32B-Instruct",
+    "meta-llama/Llama-3.2-11B-Vision-Instruct",
+    "Qwen/Qwen2.5-VL-7B-Instruct",
+  ],
+  llm7: [
+    "gpt-5.5",
+    "gemini-3.1-flash-lite",
+    "claude-sonnet-4-5",
+  ],
   // Ollama providers use the exact model selected in Settings. Local models
   // must be installed; cloud models must be available to the user's account.
   ollama: [],
@@ -130,6 +145,103 @@ async function callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType,
     }),
   });
   const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callChutes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const res = await fetch("https://llm.chutes.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0.35,
+      max_tokens: 4096,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callHuggingFace(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const res = await fetch("https://router.huggingface.co/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0.35,
+      max_tokens: 4096,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callLLM7(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const res = await fetch("https://api.llm7.io/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // LLM7.io accepts the literal string "unused" for anonymous, lower-rate access.
+      Authorization: `Bearer ${apiKey || "unused"}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0.35,
+      max_tokens: 4096,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, data };
 }
 
@@ -292,8 +404,22 @@ export async function POST(req) {
         { status: 400 }
       );
     }
-  } else if (!apiKey) {
-    const providerName = provider === "agnes" ? "Agnes AI" : provider === "openrouter" ? "OpenRouter" : provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
+  } else if (!apiKey && provider !== "llm7") {
+    // LLM7.io supports anonymous access with the literal key "unused", so it is
+    // exempt from this requirement (see the fallback default in callLLM7).
+    const providerName = provider === "agnes"
+      ? "Agnes AI"
+      : provider === "openrouter"
+        ? "OpenRouter"
+        : provider === "mistral"
+          ? "Mistral"
+          : provider === "deepseek"
+            ? "DeepSeek"
+            : provider === "chutes"
+              ? "Chutes.ai"
+              : provider === "huggingface"
+                ? "Hugging Face"
+                : "Gemini";
     return Response.json(
       { error: `Missing API key. Add your ${providerName} API key in Settings first.` },
       { status: 400 }
@@ -331,6 +457,12 @@ export async function POST(req) {
         callResult = await callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else if (provider === "agnes") {
         callResult = await callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "chutes") {
+        callResult = await callChutes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "huggingface") {
+        callResult = await callHuggingFace(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "llm7") {
+        callResult = await callLLM7(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else if (isLocalOllama || isOllamaCloud) {
         callResult = await callOllama(
           modelId,
