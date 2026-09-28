@@ -56,15 +56,11 @@ const PROVIDER_FALLBACK_CHAINS = {
     "gemini-3.1-flash-lite",
     "claude-sonnet-4-5",
   ],
-  // Ollama providers use the exact model selected in Settings. Local models
-  // must be installed; cloud models must be available to the user's account.
-  ollama: [],
-  ollama_cloud: [],
+  // Ollama starts with the model selected in Settings, then automatically
+  // tries the vision-capable fallbacks below when that model is unavailable.
+  ollama: ["llama3.2-vision", "qwen2.5vl:7b", "gemma3:4b", "llava:latest"],
+  ollama_cloud: ["gemma4:31b", "qwen3-vl:32b", "llama3.2-vision"],
 };
-
-function isRetryableStatus(status) {
-  return status === 429 || status === 503 || status === 502 || status === 504 || status >= 500;
-}
 
 async function callGemini(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
@@ -437,9 +433,15 @@ export async function POST(req) {
     ? `Context / Theme hint: ${context}. Now analyze this image for stock photography SEO metadata.`
     : "Analyze this image for stock photography SEO metadata.";
 
-  const fallbackChain = isLocalOllama || isOllamaCloud
-    ? [ollamaModel]
-    : (PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini);
+  // Always put the user's choice first, but do not stop at a dead model.
+  // This is especially useful for Ollama, where a model can be configured in
+  // the UI but not actually pulled on the machine/account yet.
+  const configuredFallbacks = PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini;
+  const fallbackChain = [...new Set(
+    (isLocalOllama || isOllamaCloud ? [ollamaModel, ...configuredFallbacks] : configuredFallbacks)
+      .map((model) => String(model || "").trim())
+      .filter(Boolean)
+  )];
   let lastError = null;
   let lastStatus = 500;
 
@@ -481,12 +483,9 @@ export async function POST(req) {
       if (!ok) {
         lastError = data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `${modelId} request failed (status ${status}).`;
         lastStatus = status === 400 && !isLocalOllama && !isOllamaCloud ? 401 : status;
-        if (!isRetryableStatus(status)) {
-          return Response.json(
-            { error: lastError, provider, modelTried: modelId },
-            { status: lastStatus }
-          );
-        }
+        // A provider may report an unavailable/invalid model as 400, 404, or
+        // 401 rather than a transient 5xx. Keep swiping through the configured
+        // model chain for every platform; only return after all candidates fail.
         continue;
       }
 
