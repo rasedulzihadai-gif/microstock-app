@@ -1,5 +1,7 @@
 import {
+  DEFAULT_OLLAMA_CLOUD_MODEL,
   DEFAULT_OLLAMA_MODEL,
+  OLLAMA_CLOUD_BASE_URL,
   getOllamaApiUrl,
   isOllamaModelAvailable,
   normalizeOllamaBaseUrl,
@@ -13,8 +15,52 @@ export async function POST(req) {
       provider = "gemini",
       apiKey,
       ollamaBaseUrl,
-      ollamaModel = DEFAULT_OLLAMA_MODEL,
+      ollamaModel,
     } = await req.json();
+
+    if (provider === "ollama_cloud") {
+      const key = String(apiKey || "").trim();
+      const model = String(ollamaModel || DEFAULT_OLLAMA_CLOUD_MODEL).trim();
+      if (!key) {
+        return Response.json({ ok: false, error: "Ollama Cloud API key cannot be empty." }, { status: 400 });
+      }
+      if (!model) {
+        return Response.json({ ok: false, error: "Choose an Ollama Cloud vision model first." }, { status: 400 });
+      }
+
+      const res = await fetch(getOllamaApiUrl(OLLAMA_CLOUD_BASE_URL, "/api/tags"), {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return Response.json(
+          {
+            ok: false,
+            error: data?.error?.message
+              || (typeof data?.error === "string" ? data.error : null)
+              || data?.message
+              || `Ollama Cloud authentication failed (status ${res.status}).`,
+          },
+          { status: res.status }
+        );
+      }
+
+      if (!isOllamaModelAvailable(data?.models, model)) {
+        return Response.json(
+          {
+            ok: false,
+            error: `Ollama Cloud connected, but “${model}” is not available to this account. Choose a model returned by the Ollama Cloud API.`,
+          },
+          { status: 422 }
+        );
+      }
+
+      return Response.json({
+        ok: true,
+        provider: "ollama_cloud",
+        message: `Ollama Cloud connected. ${model} is available.`,
+      });
+    }
 
     if (provider === "ollama") {
       let baseUrl;
@@ -24,7 +70,7 @@ export async function POST(req) {
         return Response.json({ ok: false, error: String(err.message || err) }, { status: 400 });
       }
 
-      const model = String(ollamaModel || "").trim();
+      const model = String(ollamaModel || DEFAULT_OLLAMA_MODEL).trim();
       if (!model) {
         return Response.json({ ok: false, error: "Choose an Ollama vision model first." }, { status: 400 });
       }

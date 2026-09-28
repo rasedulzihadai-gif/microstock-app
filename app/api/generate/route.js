@@ -5,7 +5,9 @@ import {
 } from "../../../lib/prompt";
 import { enforceOutputRules } from "../../../lib/enforce-rules";
 import {
+  DEFAULT_OLLAMA_CLOUD_MODEL,
   DEFAULT_OLLAMA_MODEL,
+  OLLAMA_CLOUD_BASE_URL,
   getOllamaApiUrl,
   normalizeOllamaBaseUrl,
 } from "../../../lib/ollama";
@@ -39,9 +41,10 @@ const PROVIDER_FALLBACK_CHAINS = {
     "agnes-2.5-pro",
     "agnes-2.5-flash",
   ],
-  // Ollama uses the model selected in Settings rather than a cloud fallback.
-  // Only models installed on that server can be used.
+  // Ollama providers use the exact model selected in Settings. Local models
+  // must be installed; cloud models must be available to the user's account.
   ollama: [],
+  ollama_cloud: [],
 };
 
 function isRetryableStatus(status) {
@@ -157,10 +160,13 @@ async function callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imag
   return { ok: res.ok, status: res.status, data };
 }
 
-async function callOllama(modelId, baseUrl, systemPrompt, userText, imageBase64) {
+async function callOllama(modelId, baseUrl, systemPrompt, userText, imageBase64, apiKey = "") {
   const res = await fetch(getOllamaApiUrl(baseUrl, "/api/chat"), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
     body: JSON.stringify({
       model: modelId,
       stream: false,
@@ -220,7 +226,7 @@ function extractResponseText(provider, data) {
   if (provider === "gemini") {
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
-  if (provider === "ollama") {
+  if (provider === "ollama" || provider === "ollama_cloud") {
     return data?.message?.content || "";
   }
   return data?.choices?.[0]?.message?.content || "";
@@ -253,18 +259,38 @@ export async function POST(req) {
     provider = "gemini";
   }
 
-  const apiKey = headerKey || body.apiKey;
+  const apiKey = String(headerKey || body.apiKey || "").trim();
+  const isLocalOllama = provider === "ollama";
+  const isOllamaCloud = provider === "ollama_cloud";
   let ollamaBaseUrl;
   let ollamaModel;
-  if (provider === "ollama") {
-    try {
-      ollamaBaseUrl = normalizeOllamaBaseUrl(headerOllamaBaseUrl || body.ollamaBaseUrl);
-    } catch (err) {
-      return Response.json({ error: String(err.message || err) }, { status: 400 });
+
+  if (isLocalOllama || isOllamaCloud) {
+    if (isLocalOllama) {
+      try {
+        ollamaBaseUrl = normalizeOllamaBaseUrl(headerOllamaBaseUrl || body.ollamaBaseUrl);
+      } catch (err) {
+        return Response.json({ error: String(err.message || err) }, { status: 400 });
+      }
+    } else {
+      // Keep direct cloud requests pinned to Ollama's official host. Unlike
+      // local Ollama, this provider always requires bearer authentication.
+      ollamaBaseUrl = OLLAMA_CLOUD_BASE_URL;
+      if (!apiKey) {
+        return Response.json(
+          { error: "Missing API key. Add your Ollama Cloud API key in Settings first." },
+          { status: 400 }
+        );
+      }
     }
-    ollamaModel = String(headerOllamaModel || body.ollamaModel || DEFAULT_OLLAMA_MODEL).trim();
+
+    const defaultModel = isOllamaCloud ? DEFAULT_OLLAMA_CLOUD_MODEL : DEFAULT_OLLAMA_MODEL;
+    ollamaModel = String(headerOllamaModel || body.ollamaModel || defaultModel).trim();
     if (!ollamaModel) {
-      return Response.json({ error: "Choose an Ollama vision model in Settings first." }, { status: 400 });
+      return Response.json(
+        { error: `Choose an Ollama ${isOllamaCloud ? "Cloud " : ""}vision model in Settings first.` },
+        { status: 400 }
+      );
     }
   } else if (!apiKey) {
     const providerName = provider === "agnes" ? "Agnes AI" : provider === "openrouter" ? "OpenRouter" : provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
@@ -285,7 +311,7 @@ export async function POST(req) {
     ? `Context / Theme hint: ${context}. Now analyze this image for stock photography SEO metadata.`
     : "Analyze this image for stock photography SEO metadata.";
 
-  const fallbackChain = provider === "ollama"
+  const fallbackChain = isLocalOllama || isOllamaCloud
     ? [ollamaModel]
     : (PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini);
   let lastError = null;
@@ -305,8 +331,15 @@ export async function POST(req) {
         callResult = await callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else if (provider === "agnes") {
         callResult = await callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
-      } else if (provider === "ollama") {
-        callResult = await callOllama(modelId, ollamaBaseUrl, systemPrompt, userText, imageBase64);
+      } else if (isLocalOllama || isOllamaCloud) {
+        callResult = await callOllama(
+          modelId,
+          ollamaBaseUrl,
+          systemPrompt,
+          userText,
+          imageBase64,
+          isOllamaCloud ? apiKey : ""
+        );
       } else {
         callResult = await callGemini(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       }
@@ -315,7 +348,7 @@ export async function POST(req) {
 
       if (!ok) {
         lastError = data?.error?.message || (typeof data?.error === "string" ? data.error : null) || data?.message || `${modelId} request failed (status ${status}).`;
-        lastStatus = status === 400 && provider !== "ollama" ? 401 : status;
+        lastStatus = status === 400 && !isLocalOllama && !isOllamaCloud ? 401 : status;
         if (!isRetryableStatus(status)) {
           return Response.json(
             { error: lastError, provider, modelTried: modelId },

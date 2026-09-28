@@ -19,6 +19,7 @@ const DEFAULT_OLLAMA_CONFIG = {
   baseUrl: "http://127.0.0.1:11434",
   model: "llama3.2-vision",
 };
+const DEFAULT_OLLAMA_CLOUD_MODEL = "gemma4:31b";
 
 const PROVIDER_LABELS = {
   gemini: "Gemini",
@@ -26,7 +27,8 @@ const PROVIDER_LABELS = {
   mistral: "Mistral",
   openrouter: "OpenRouter",
   agnes: "Agnes AI",
-  ollama: "Ollama",
+  ollama: "Ollama Local",
+  ollama_cloud: "Ollama Cloud",
 };
 
 const ALL_PLATFORMS_KEY = "all_platforms";
@@ -91,6 +93,7 @@ export default function MicrostockApp() {
     openrouter: "",
     agnes: "",
     ollama: "",
+    ollama_cloud: "",
   });
   const [keyStatuses, setKeyStatuses] = useState({
     gemini: "not-set",
@@ -99,8 +102,10 @@ export default function MicrostockApp() {
     openrouter: "not-set",
     agnes: "not-set",
     ollama: "not-set",
+    ollama_cloud: "not-set",
   });
   const [ollamaConfig, setOllamaConfig] = useState(DEFAULT_OLLAMA_CONFIG);
+  const [ollamaCloudModel, setOllamaCloudModel] = useState(DEFAULT_OLLAMA_CLOUD_MODEL);
   const [testFeedback, setTestFeedback] = useState({
     gemini: null,
     deepseek: null,
@@ -108,6 +113,7 @@ export default function MicrostockApp() {
     openrouter: null,
     agnes: null,
     ollama: null,
+    ollama_cloud: null,
   });
 
   const [showSettings, setShowSettings] = useState(false);
@@ -133,8 +139,10 @@ export default function MicrostockApp() {
     const mistralKey = localStorage.getItem("mstock_key_mistral") || "";
     const openrouterKey = localStorage.getItem("mstock_key_openrouter") || "";
     const agnesKey = localStorage.getItem("mstock_key_agnes") || "";
+    const ollamaCloudKey = localStorage.getItem("mstock_key_ollama_cloud") || "";
     const savedOllamaBaseUrl = localStorage.getItem("mstock_ollama_base_url") || DEFAULT_OLLAMA_CONFIG.baseUrl;
     const savedOllamaModel = localStorage.getItem("mstock_ollama_model") || DEFAULT_OLLAMA_CONFIG.model;
+    const savedOllamaCloudModel = localStorage.getItem("mstock_ollama_cloud_model") || DEFAULT_OLLAMA_CLOUD_MODEL;
     const savedPlatform = localStorage.getItem("mstock_target_platform") || DEFAULT_PLATFORM_TAB;
     setTargetPlatform(savedPlatform);
     setActiveTab(savedPlatform === ALL_PLATFORMS_KEY ? DEFAULT_PLATFORM_TAB : savedPlatform);
@@ -146,9 +154,11 @@ export default function MicrostockApp() {
       openrouter: openrouterKey,
       agnes: agnesKey,
       ollama: "",
+      ollama_cloud: ollamaCloudKey,
     };
     setApiKeys(loadedKeys);
     setOllamaConfig({ baseUrl: savedOllamaBaseUrl, model: savedOllamaModel });
+    setOllamaCloudModel(savedOllamaCloudModel);
 
     setKeyStatuses({
       gemini: geminiKey ? "connected" : "not-set",
@@ -157,6 +167,7 @@ export default function MicrostockApp() {
       openrouter: openrouterKey ? "connected" : "not-set",
       agnes: agnesKey ? "connected" : "not-set",
       ollama: "not-set",
+      ollama_cloud: ollamaCloudKey && savedOllamaCloudModel ? "connected" : "not-set",
     });
   }, []);
 
@@ -184,6 +195,11 @@ export default function MicrostockApp() {
     setTestFeedback((prev) => ({ ...prev, ollama: null }));
   }
 
+  function handleOllamaCloudModelChange(model) {
+    setOllamaCloudModel(model);
+    setTestFeedback((prev) => ({ ...prev, ollama_cloud: null }));
+  }
+
   function handleSaveKey(providerId) {
     if (providerId === "ollama") {
       const baseUrl = ollamaConfig.baseUrl.trim();
@@ -194,6 +210,22 @@ export default function MicrostockApp() {
       setTestFeedback((prev) => ({
         ...prev,
         ollama: baseUrl && model ? { ok: true, message: "Ollama settings saved locally." } : null,
+      }));
+      return;
+    }
+
+    if (providerId === "ollama_cloud") {
+      const key = apiKeys.ollama_cloud?.trim() || "";
+      const model = ollamaCloudModel.trim();
+      localStorage.setItem("mstock_key_ollama_cloud", key);
+      localStorage.setItem("mstock_ollama_cloud_model", model);
+      setKeyStatuses((prev) => ({
+        ...prev,
+        ollama_cloud: key && model ? "connected" : "not-set",
+      }));
+      setTestFeedback((prev) => ({
+        ...prev,
+        ollama_cloud: key && model ? { ok: true, message: "Ollama Cloud settings saved locally." } : null,
       }));
       return;
     }
@@ -223,6 +255,16 @@ export default function MicrostockApp() {
       return;
     }
 
+    if (providerId === "ollama_cloud") {
+      localStorage.removeItem("mstock_key_ollama_cloud");
+      localStorage.removeItem("mstock_ollama_cloud_model");
+      setApiKeys((prev) => ({ ...prev, ollama_cloud: "" }));
+      setOllamaCloudModel(DEFAULT_OLLAMA_CLOUD_MODEL);
+      setKeyStatuses((prev) => ({ ...prev, ollama_cloud: "not-set" }));
+      setTestFeedback((prev) => ({ ...prev, ollama_cloud: null }));
+      return;
+    }
+
     localStorage.removeItem(`mstock_key_${providerId}`);
     if (providerId === "gemini") {
       localStorage.removeItem("mstock_gemini_key");
@@ -235,9 +277,10 @@ export default function MicrostockApp() {
   async function handleTestConnection(providerId) {
     const key = apiKeys[providerId]?.trim();
     const isOllama = providerId === "ollama";
+    const isOllamaCloud = providerId === "ollama_cloud";
     const baseUrl = ollamaConfig.baseUrl.trim();
-    const model = ollamaConfig.model.trim();
-    if (isOllama ? !baseUrl || !model : !key) return;
+    const model = isOllamaCloud ? ollamaCloudModel.trim() : ollamaConfig.model.trim();
+    if (isOllama ? !baseUrl || !model : isOllamaCloud ? !key || !model : !key) return;
 
     setKeyStatuses((prev) => ({ ...prev, [providerId]: "testing" }));
     setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
@@ -249,7 +292,9 @@ export default function MicrostockApp() {
         body: JSON.stringify(
           isOllama
             ? { provider: providerId, ollamaBaseUrl: baseUrl, ollamaModel: model }
-            : { provider: providerId, apiKey: key }
+            : isOllamaCloud
+              ? { provider: providerId, apiKey: key, ollamaModel: model }
+              : { provider: providerId, apiKey: key }
         ),
       });
       const data = await res.json();
@@ -320,9 +365,10 @@ export default function MicrostockApp() {
   async function processOne(index) {
     const currentKey = apiKeys[activeProvider]?.trim();
     const isOllama = activeProvider === "ollama";
+    const isOllamaCloud = activeProvider === "ollama_cloud";
     const ollamaBaseUrl = ollamaConfig.baseUrl.trim();
-    const ollamaModel = ollamaConfig.model.trim();
-    if (isOllama ? !ollamaBaseUrl || !ollamaModel : !currentKey) {
+    const ollamaModel = (isOllamaCloud ? ollamaCloudModel : ollamaConfig.model).trim();
+    if (isOllama ? !ollamaBaseUrl || !ollamaModel : isOllamaCloud ? !currentKey || !ollamaModel : !currentKey) {
       setShowSettings(true);
       return;
     }
@@ -346,13 +392,20 @@ export default function MicrostockApp() {
               "X-Ollama-Base-Url": ollamaBaseUrl,
               "X-Ollama-Model": ollamaModel,
             }
-            : { "X-Provider-Key": currentKey }),
+            : isOllamaCloud
+              ? {
+                "X-Provider-Key": currentKey,
+                "X-Ollama-Model": ollamaModel,
+              }
+              : { "X-Provider-Key": currentKey }),
         },
         body: JSON.stringify({
           provider: activeProvider,
           ...(isOllama
             ? { ollamaBaseUrl, ollamaModel }
-            : { apiKey: currentKey }),
+            : isOllamaCloud
+              ? { apiKey: currentKey, ollamaModel }
+              : { apiKey: currentKey }),
           imageBase64: base64,
           mimeType: "image/jpeg",
           context,
@@ -378,8 +431,10 @@ export default function MicrostockApp() {
   async function runBatch() {
     const currentKey = apiKeys[activeProvider]?.trim();
     const isOllama = activeProvider === "ollama";
+    const isOllamaCloud = activeProvider === "ollama_cloud";
     const ollamaReady = Boolean(ollamaConfig.baseUrl.trim() && ollamaConfig.model.trim());
-    if (isOllama ? !ollamaReady : !currentKey) {
+    const ollamaCloudReady = Boolean(currentKey && ollamaCloudModel.trim());
+    if (isOllama ? !ollamaReady : isOllamaCloud ? !ollamaCloudReady : !currentKey) {
       setShowSettings(true);
       return;
     }
@@ -570,6 +625,8 @@ export default function MicrostockApp() {
           onChangeApiKey={handleApiKeyChange}
           ollamaConfig={ollamaConfig}
           onChangeOllamaConfig={handleOllamaConfigChange}
+          ollamaCloudModel={ollamaCloudModel}
+          onChangeOllamaCloudModel={handleOllamaCloudModelChange}
           keyStatuses={keyStatuses}
           testFeedback={testFeedback}
           onSave={handleSaveKey}
