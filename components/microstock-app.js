@@ -92,6 +92,9 @@ export default function MicrostockApp() {
     mistral: "",
     openrouter: "",
     agnes: "",
+    chutes: "",
+    huggingface: "",
+    llm7: "",
     ollama: "",
     ollama_cloud: "",
   });
@@ -101,6 +104,9 @@ export default function MicrostockApp() {
     mistral: "not-set",
     openrouter: "not-set",
     agnes: "not-set",
+    chutes: "not-set",
+    huggingface: "not-set",
+    llm7: "not-set",
     ollama: "not-set",
     ollama_cloud: "not-set",
   });
@@ -112,6 +118,9 @@ export default function MicrostockApp() {
     mistral: null,
     openrouter: null,
     agnes: null,
+    chutes: null,
+    huggingface: null,
+    llm7: null,
     ollama: null,
     ollama_cloud: null,
   });
@@ -139,6 +148,9 @@ export default function MicrostockApp() {
     const mistralKey = localStorage.getItem("mstock_key_mistral") || "";
     const openrouterKey = localStorage.getItem("mstock_key_openrouter") || "";
     const agnesKey = localStorage.getItem("mstock_key_agnes") || "";
+    const chutesKey = localStorage.getItem("mstock_key_chutes") || "";
+    const huggingfaceKey = localStorage.getItem("mstock_key_huggingface") || "";
+    const llm7Key = localStorage.getItem("mstock_key_llm7") || "";
     const ollamaCloudKey = localStorage.getItem("mstock_key_ollama_cloud") || "";
     const savedOllamaBaseUrl = localStorage.getItem("mstock_ollama_base_url") || DEFAULT_OLLAMA_CONFIG.baseUrl;
     const savedOllamaModel = localStorage.getItem("mstock_ollama_model") || DEFAULT_OLLAMA_CONFIG.model;
@@ -153,6 +165,9 @@ export default function MicrostockApp() {
       mistral: mistralKey,
       openrouter: openrouterKey,
       agnes: agnesKey,
+      chutes: chutesKey,
+      huggingface: huggingfaceKey,
+      llm7: llm7Key,
       ollama: "",
       ollama_cloud: ollamaCloudKey,
     };
@@ -166,6 +181,9 @@ export default function MicrostockApp() {
       mistral: mistralKey ? "connected" : "not-set",
       openrouter: openrouterKey ? "connected" : "not-set",
       agnes: agnesKey ? "connected" : "not-set",
+      chutes: chutesKey ? "connected" : "not-set",
+      huggingface: huggingfaceKey ? "connected" : "not-set",
+      llm7: llm7Key ? "connected" : "not-set",
       ollama: "not-set",
       ollama_cloud: ollamaCloudKey && savedOllamaCloudModel ? "connected" : "not-set",
     });
@@ -280,7 +298,8 @@ export default function MicrostockApp() {
     const isOllamaCloud = providerId === "ollama_cloud";
     const baseUrl = ollamaConfig.baseUrl.trim();
     const model = isOllamaCloud ? ollamaCloudModel.trim() : ollamaConfig.model.trim();
-    if (isOllama ? !baseUrl || !model : isOllamaCloud ? !key || !model : !key) return;
+    // LLM7.io works anonymously (key defaults to "unused" server-side), so it's exempt.
+    if (isOllama ? !baseUrl || !model : isOllamaCloud ? !key || !model : (!key && providerId !== "llm7")) return;
 
     setKeyStatuses((prev) => ({ ...prev, [providerId]: "testing" }));
     setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
@@ -368,7 +387,8 @@ export default function MicrostockApp() {
     const isOllamaCloud = activeProvider === "ollama_cloud";
     const ollamaBaseUrl = ollamaConfig.baseUrl.trim();
     const ollamaModel = (isOllamaCloud ? ollamaCloudModel : ollamaConfig.model).trim();
-    if (isOllama ? !ollamaBaseUrl || !ollamaModel : isOllamaCloud ? !currentKey || !ollamaModel : !currentKey) {
+    // LLM7.io works anonymously (key defaults to "unused" server-side), so it's exempt.
+    if (isOllama ? !ollamaBaseUrl || !ollamaModel : isOllamaCloud ? !currentKey || !ollamaModel : (!currentKey && activeProvider !== "llm7")) {
       setShowSettings(true);
       return;
     }
@@ -434,7 +454,8 @@ export default function MicrostockApp() {
     const isOllamaCloud = activeProvider === "ollama_cloud";
     const ollamaReady = Boolean(ollamaConfig.baseUrl.trim() && ollamaConfig.model.trim());
     const ollamaCloudReady = Boolean(currentKey && ollamaCloudModel.trim());
-    if (isOllama ? !ollamaReady : isOllamaCloud ? !ollamaCloudReady : !currentKey) {
+    // LLM7.io works anonymously (key defaults to "unused" server-side), so it's exempt.
+    if (isOllama ? !ollamaReady : isOllamaCloud ? !ollamaCloudReady : (!currentKey && activeProvider !== "llm7")) {
       setShowSettings(true);
       return;
     }

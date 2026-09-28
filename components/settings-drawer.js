@@ -55,6 +55,40 @@ export const PROVIDERS = [
     hint: "Agnes AI's OpenAI-compatible multimodal API for image understanding and metadata generation.",
   },
   {
+    id: "chutes",
+    name: "Chutes.ai",
+    badge: "TEE Vision",
+    placeholder: "cpk_...",
+    link: "https://chutes.ai/app/settings/api-keys",
+    linkLabel: "chutes.ai/app/settings/api-keys",
+    models: ["Qwen/Qwen3.6-27B-TEE", "google/gemma-4-31B-turbo-TEE", "moonshotai/Kimi-K2.6-TEE"],
+    hint: "Chutes.ai's decentralized, confidential-compute inference network with OpenAI-compatible vision models.",
+  },
+  {
+    id: "huggingface",
+    name: "Hugging Face",
+    badge: "Inference Providers",
+    placeholder: "hf_...",
+    link: "https://huggingface.co/settings/tokens",
+    linkLabel: "huggingface.co/settings/tokens",
+    models: [
+      "Qwen/Qwen2.5-VL-32B-Instruct",
+      "meta-llama/Llama-3.2-11B-Vision-Instruct",
+      "Qwen/Qwen2.5-VL-7B-Instruct",
+    ],
+    hint: "Route through Hugging Face's Inference Providers router with a single token across many hosted vision models.",
+  },
+  {
+    id: "llm7",
+    name: "LLM7.io",
+    badge: "Free tier",
+    placeholder: "unused (or your llm7.io token)",
+    link: "https://token.llm7.io",
+    linkLabel: "token.llm7.io",
+    models: ["gpt-5.5", "gemini-3.1-flash-lite", "claude-sonnet-4-5"],
+    hint: "LLM7.io's free, OpenAI-compatible gateway. Works anonymously with the key “unused”, or register a free token for higher rate limits.",
+  },
+  {
     id: "ollama",
     name: "Ollama Local",
     badge: "Local vision",
@@ -119,7 +153,13 @@ export function SettingsDrawer({
   const currentFeedback = testFeedback[activeProvider] || null;
   const ollamaReady = Boolean(ollamaConfig.baseUrl?.trim() && ollamaConfig.model?.trim());
   const ollamaCloudReady = Boolean(currentKey.trim() && ollamaCloudModel.trim());
-  const currentProviderReady = isOllama ? ollamaReady : isOllamaCloud ? ollamaCloudReady : Boolean(currentKey);
+  const currentProviderReady = isOllama
+    ? ollamaReady
+    : isOllamaCloud
+      ? ollamaCloudReady
+      : activeProvider === "llm7"
+        ? true // LLM7.io works anonymously with the key "unused".
+        : Boolean(currentKey);
   const statusInfo = isOllamaProvider && currentStatus === "invalid"
     ? { status: "error", label: "Connection failed" }
     : (STATUS_MAP[currentStatus] ?? STATUS_MAP["not-set"]);
