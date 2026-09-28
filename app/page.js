@@ -29,6 +29,16 @@ const PROVIDER_LABELS = {
   ollama: "Ollama",
 };
 
+const ALL_PLATFORMS_KEY = "all_platforms";
+const DEFAULT_PLATFORM_TAB = "adobe_stock";
+
+function getResultPlatformTab(item, fallbackPlatform = DEFAULT_PLATFORM_TAB) {
+  const available = Object.keys(item?.result?.platforms || {});
+  if (available.includes(item?.targetPlatform)) return item.targetPlatform;
+  if (available.includes(fallbackPlatform)) return fallbackPlatform;
+  return available[0] || DEFAULT_PLATFORM_TAB;
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -119,9 +129,9 @@ export default function Home() {
     const agnesKey = localStorage.getItem("mstock_key_agnes") || "";
     const savedOllamaBaseUrl = localStorage.getItem("mstock_ollama_base_url") || DEFAULT_OLLAMA_CONFIG.baseUrl;
     const savedOllamaModel = localStorage.getItem("mstock_ollama_model") || DEFAULT_OLLAMA_CONFIG.model;
-    const savedPlatform = localStorage.getItem("mstock_target_platform") || "adobe_stock";
+    const savedPlatform = localStorage.getItem("mstock_target_platform") || DEFAULT_PLATFORM_TAB;
     setTargetPlatform(savedPlatform);
-    setActiveTab(savedPlatform);
+    setActiveTab(savedPlatform === ALL_PLATFORMS_KEY ? DEFAULT_PLATFORM_TAB : savedPlatform);
 
     const loadedKeys = {
       gemini: geminiKey,
@@ -445,7 +455,7 @@ export default function Home() {
         onAddClick={openPicker}
         onSelect={(idx) => {
           setActiveIndex(idx);
-          setActiveTab(items[idx]?.targetPlatform || targetPlatform);
+          setActiveTab(getResultPlatformTab(items[idx], targetPlatform));
         }}
         onRemove={removeItem}
         onRunBatch={runBatch}
@@ -474,10 +484,11 @@ export default function Home() {
             onChange={(e) => {
               const platform = e.target.value;
               setTargetPlatform(platform);
-              setActiveTab(platform);
+              setActiveTab(platform === ALL_PLATFORMS_KEY ? DEFAULT_PLATFORM_TAB : platform);
               localStorage.setItem("mstock_target_platform", platform);
             }}
           >
+            <option value="all_platforms">All platforms</option>
             <option value="adobe_stock">Adobe Stock only</option>
             <option value="shutterstock">Shutterstock only</option>
             <option value="freepik_vecteezy">Freepik only</option>

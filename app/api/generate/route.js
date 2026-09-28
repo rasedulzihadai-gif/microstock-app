@@ -1,4 +1,8 @@
-import { buildPlatformPrompt, FALLBACK_REMINDER, PLATFORM_NAMES } from "../../../lib/prompt";
+import {
+  buildPlatformPrompt,
+  FALLBACK_REMINDER,
+  isSupportedTargetPlatform,
+} from "../../../lib/prompt";
 import { enforceOutputRules } from "../../../lib/enforce-rules";
 import {
   DEFAULT_OLLAMA_MODEL,
@@ -271,7 +275,7 @@ export async function POST(req) {
   }
 
   const { imageBase64, mimeType, context } = body;
-  const targetPlatform = PLATFORM_NAMES[body.targetPlatform] ? body.targetPlatform : "adobe_stock";
+  const targetPlatform = isSupportedTargetPlatform(body.targetPlatform) ? body.targetPlatform : "adobe_stock";
   const systemPrompt = buildPlatformPrompt(targetPlatform);
   if (!imageBase64) {
     return Response.json({ error: "No image provided." }, { status: 400 });
