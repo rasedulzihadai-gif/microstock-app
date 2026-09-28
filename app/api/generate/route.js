@@ -1,22 +1,32 @@
 import { SYSTEM_PROMPT, FALLBACK_REMINDER } from "../../../lib/prompt";
 import { enforceOutputRules } from "../../../lib/enforce-rules";
 
-// Tried in order. If one is overloaded/rate-limited/unavailable, the next
-// one is used automatically — the user never has to switch models manually.
-const MODEL_FALLBACK_CHAIN = [
-  "gemini-3.6-flash",
-  "gemini-2.5-flash",
-  "gemini-3.1-flash-lite",
-];
+export const maxDuration = 60;
 
-// Only fall through to the next model for transient/capacity errors.
-// A bad API key (401/403) or a bad request (400) should fail immediately —
-// retrying with another model won't fix those.
+const PROVIDER_FALLBACK_CHAINS = {
+  gemini: [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-3.1-flash-lite",
+  ],
+  deepseek: [
+    "deepseek-flash",
+    "deepseek-chat",
+    "deepseek-v4-flash-vision-exp",
+  ],
+  mistral: [
+    "pixtral-12b-2409",
+    "pixtral-large-latest",
+    "pixtral-12b",
+  ],
+};
+
 function isRetryableStatus(status) {
-  return status === 429 || status === 503 || status >= 500;
+  return status === 429 || status === 503 || status === 502 || status === 504 || status >= 500;
 }
 
-async function callModel(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+async function callGemini(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
   const res = await fetch(url, {
     method: "POST",
@@ -32,87 +42,204 @@ async function callModel(modelId, apiKey, systemPrompt, userText, mimeType, imag
           ],
         },
       ],
-      generationConfig: { temperature: 0.4 },
+      generationConfig: { temperature: 0.35 },
     }),
   });
   const data = await res.json();
   return { ok: res.ok, status: res.status, data };
 }
 
+async function callDeepSeek(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const url = "https://api.deepseek.com/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.35,
+    }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callMistral(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const url = "https://api.mistral.ai/v1/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.35,
+    }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+function extractResponseText(provider, data) {
+  if (provider === "gemini") {
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  return data?.choices?.[0]?.message?.content || "";
+}
+
+function cleanJsonText(raw) {
+  if (!raw) return "";
+  let text = raw.trim();
+  if (text.startsWith("```")) {
+    text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+  return text.trim();
+}
+
 export async function POST(req) {
-  const apiKey = req.headers.get("x-provider-key");
+  let body = {};
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON request body." }, { status: 400 });
+  }
+
+  const headerProvider = req.headers.get("x-provider");
+  const headerKey = req.headers.get("x-provider-key");
+
+  let provider = (headerProvider || body.provider || "gemini").toLowerCase();
+  if (!PROVIDER_FALLBACK_CHAINS[provider]) {
+    provider = "gemini";
+  }
+
+  const apiKey = headerKey || body.apiKey;
   if (!apiKey) {
+    const providerName = provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
     return Response.json(
-      { error: "Missing API key. Add your Gemini key in Settings first." },
+      { error: `Missing API key. Add your ${providerName} API key in Settings first.` },
       { status: 400 }
     );
   }
 
-  const { imageBase64, mimeType, context } = await req.json();
+  const { imageBase64, mimeType, context } = body;
   if (!imageBase64) {
     return Response.json({ error: "No image provided." }, { status: 400 });
   }
 
   const baseUserText = context
-    ? `Context/theme hint from the user: ${context}. Now analyze this image.`
-    : "Analyze this image.";
+    ? `Context / Theme hint: ${context}. Now analyze this image for stock photography SEO metadata.`
+    : "Analyze this image for stock photography SEO metadata.";
 
+  const fallbackChain = PROVIDER_FALLBACK_CHAINS[provider] || PROVIDER_FALLBACK_CHAINS.gemini;
   let lastError = null;
   let lastStatus = 500;
 
-  for (let i = 0; i < MODEL_FALLBACK_CHAIN.length; i++) {
-    const modelId = MODEL_FALLBACK_CHAIN[i];
-    // Every model after the first (i.e. any fallback) gets the compact
-    // rule-reminder appended to the user turn as well as the system prompt —
-    // lighter/older models weight the user message more heavily, so this
-    // measurably improves rule A-D compliance on them.
+  for (let i = 0; i < fallbackChain.length; i++) {
+    const modelId = fallbackChain[i];
     const userText = i === 0 ? baseUserText : `${baseUserText}\n${FALLBACK_REMINDER}`;
 
     try {
-      const { ok, status, data } = await callModel(
-        modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64
-      );
+      let callResult;
+      if (provider === "deepseek") {
+        callResult = await callDeepSeek(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+      } else if (provider === "mistral") {
+        callResult = await callMistral(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+      } else {
+        callResult = await callGemini(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+      }
+
+      const { ok, status, data } = callResult;
 
       if (!ok) {
-        lastError = data?.error?.message || `${modelId} request failed.`;
-        lastStatus = status === 400 ? 401 : status; // treat bad key as 401-ish
+        lastError = data?.error?.message || data?.message || `${modelId} request failed (status ${status}).`;
+        lastStatus = status === 400 ? 401 : status;
         if (!isRetryableStatus(status)) {
           return Response.json(
-            { error: lastError, modelTried: modelId },
+            { error: lastError, provider, modelTried: modelId },
             { status: lastStatus }
           );
         }
         continue;
       }
 
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      const cleaned = rawText.replace(/```json|```/g, "").trim();
+      const rawText = extractResponseText(provider, data);
+      const cleaned = cleanJsonText(rawText);
 
       let parsed;
       try {
         parsed = JSON.parse(cleaned);
       } catch (e) {
-        lastError = "Model returned invalid JSON.";
-        lastStatus = 502;
-        continue;
+        // Attempt substring JSON extraction if extra text wraps JSON
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch {
+            lastError = "Model returned invalid JSON format.";
+            lastStatus = 502;
+            continue;
+          }
+        } else {
+          lastError = "Model returned non-JSON response.";
+          lastStatus = 502;
+          continue;
+        }
       }
 
-      // Hard-enforce rules B/C/D regardless of which model answered.
       const enforced = enforceOutputRules(parsed);
 
       return Response.json({
         ...enforced,
-        _meta: { modelUsed: modelId, fellBack: i > 0 },
+        _meta: {
+          provider,
+          modelUsed: modelId,
+          fellBack: i > 0,
+        },
       });
     } catch (err) {
-      lastError = String(err);
+      lastError = String(err.message || err);
       lastStatus = 500;
       continue;
     }
   }
 
   return Response.json(
-    { error: `All models unavailable. Last error: ${lastError}` },
+    { error: `All ${provider} models failed. Last error: ${lastError}` },
     { status: lastStatus }
   );
 }
