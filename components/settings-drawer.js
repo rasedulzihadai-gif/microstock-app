@@ -56,12 +56,22 @@ export const PROVIDERS = [
   },
   {
     id: "ollama",
-    name: "Ollama",
+    name: "Ollama Local",
     badge: "Local vision",
     link: "https://ollama.com/download",
     linkLabel: "ollama.com",
     models: ["llama3.2-vision", "llava", "qwen2.5vl"],
     hint: "Run a vision model through your own Ollama server. Native Ollama does not require an API key.",
+  },
+  {
+    id: "ollama_cloud",
+    name: "Ollama Cloud",
+    badge: "Hosted vision",
+    placeholder: "Ollama API key",
+    link: "https://ollama.com/settings/keys",
+    linkLabel: "ollama.com/settings/keys",
+    models: ["gemma4:31b", "glm-5.3-flash", "kimi-k3", "mistral-large-3"],
+    hint: "Use Ollama's hosted vision models directly—no Ollama install or model download required.",
   },
 ];
 
@@ -79,6 +89,8 @@ export function SettingsDrawer({
   onChangeApiKey,
   ollamaConfig = {},
   onChangeOllamaConfig,
+  ollamaCloudModel = "",
+  onChangeOllamaCloudModel,
   keyStatuses = {},
   testFeedback = {},
   onSave,
@@ -96,13 +108,19 @@ export function SettingsDrawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  useEffect(() => setShowKey(false), [activeProvider]);
+
   const currentProviderConfig = PROVIDERS.find((p) => p.id === activeProvider) || PROVIDERS[0];
   const isOllama = activeProvider === "ollama";
+  const isOllamaCloud = activeProvider === "ollama_cloud";
+  const isOllamaProvider = isOllama || isOllamaCloud;
   const currentKey = apiKeys[activeProvider] || "";
   const currentStatus = keyStatuses[activeProvider] || "not-set";
   const currentFeedback = testFeedback[activeProvider] || null;
   const ollamaReady = Boolean(ollamaConfig.baseUrl?.trim() && ollamaConfig.model?.trim());
-  const statusInfo = isOllama && currentStatus === "invalid"
+  const ollamaCloudReady = Boolean(currentKey.trim() && ollamaCloudModel.trim());
+  const currentProviderReady = isOllama ? ollamaReady : isOllamaCloud ? ollamaCloudReady : Boolean(currentKey);
+  const statusInfo = isOllamaProvider && currentStatus === "invalid"
     ? { status: "error", label: "Connection failed" }
     : (STATUS_MAP[currentStatus] ?? STATUS_MAP["not-set"]);
 
@@ -188,33 +206,56 @@ export function SettingsDrawer({
               </div>
             </>
           ) : (
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-                <label htmlFor="api-key-input" className="field__label">
-                  {currentProviderConfig.name} API Key
-                </label>
-                {currentKey && (
-                  <button
-                    type="button"
-                    className="btn btn--subtle btn--sm"
-                    style={{ height: 20, fontSize: 11, padding: "0 4px" }}
-                    onClick={() => setShowKey(!showKey)}
-                  >
-                    {showKey ? "Hide" : "Show"}
-                  </button>
-                )}
+            <>
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                  <label htmlFor="api-key-input" className="field__label">
+                    {currentProviderConfig.name} API Key
+                  </label>
+                  {currentKey && (
+                    <button
+                      type="button"
+                      className="btn btn--subtle btn--sm"
+                      style={{ height: 20, fontSize: 11, padding: "0 4px" }}
+                      onClick={() => setShowKey(!showKey)}
+                    >
+                      {showKey ? "Hide" : "Show"}
+                    </button>
+                  )}
+                </div>
+                <input
+                  id="api-key-input"
+                  className="input"
+                  type={showKey ? "text" : "password"}
+                  value={currentKey}
+                  onChange={(e) => onChangeApiKey(activeProvider, e.target.value)}
+                  placeholder={currentProviderConfig.placeholder}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </div>
-              <input
-                id="api-key-input"
-                className="input"
-                type={showKey ? "text" : "password"}
-                value={currentKey}
-                onChange={(e) => onChangeApiKey(activeProvider, e.target.value)}
-                placeholder={currentProviderConfig.placeholder}
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
+
+              {isOllamaCloud && (
+                <div>
+                  <label htmlFor="ollama-cloud-model-input" className="field__label" style={{ display: "block", marginBottom: 8 }}>
+                    Cloud vision model
+                  </label>
+                  <input
+                    id="ollama-cloud-model-input"
+                    className="input"
+                    value={ollamaCloudModel}
+                    onChange={(e) => onChangeOllamaCloudModel(e.target.value)}
+                    placeholder="gemma4:31b"
+                    list="ollama-cloud-vision-models"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <datalist id="ollama-cloud-vision-models">
+                    {currentProviderConfig.models.map((model) => <option key={model} value={model} />)}
+                  </datalist>
+                </div>
+              )}
+            </>
           )}
 
           <p className="drawer__text">
@@ -224,6 +265,8 @@ export function SettingsDrawer({
             </a>
             {isOllama ? (
               <> and run <code>ollama pull {ollamaConfig.model || "llama3.2-vision"}</code>. For a deployed app, use an Ollama URL reachable from the app server rather than your browser’s localhost.</>
+            ) : isOllamaCloud ? (
+              <>. Use the API model name (for example, <code>gemma4:31b</code>), not the CLI’s <code>:cloud</code> alias. Your key is stored locally in your browser and never logged.</>
             ) : (
               <>. Keys are stored locally in your browser and never logged.</>
             )}
@@ -231,7 +274,7 @@ export function SettingsDrawer({
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
-              {isOllama ? "Suggested vision models:" : "Fallback models:"}
+              {isOllamaProvider ? "Suggested vision models:" : "Fallback models:"}
             </span>
             {currentProviderConfig.models.map((m) => (
               <span key={m} className="drawer__model-tag">
@@ -242,21 +285,21 @@ export function SettingsDrawer({
 
           <div className="drawer__row">
             <button className="btn btn--primary" onClick={() => onSave(activeProvider)}>
-              {isOllama ? "Save settings" : "Save key"}
+              {isOllamaProvider ? "Save settings" : "Save key"}
             </button>
             <button
               className="btn btn--ghost"
               onClick={() => onTest(activeProvider)}
-              disabled={isOllama ? !ollamaReady || currentStatus === "testing" : !currentKey || currentStatus === "testing"}
+              disabled={!currentProviderReady || currentStatus === "testing"}
             >
               Test connection
             </button>
             <button
               className="btn btn--subtle"
               onClick={() => onClear(activeProvider)}
-              disabled={isOllama ? !ollamaReady : !currentKey}
+              disabled={!isOllamaProvider && !currentKey}
             >
-              {isOllama ? "Reset" : "Clear"}
+              {isOllamaProvider ? "Reset" : "Clear"}
             </button>
           </div>
 
