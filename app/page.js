@@ -15,6 +15,20 @@ import { ExportBar } from "../components/export-bar";
 import { Dropzone } from "../components/dropzone";
 import { IconSettings, IconSparkles } from "../components/icons";
 
+const DEFAULT_OLLAMA_CONFIG = {
+  baseUrl: "http://127.0.0.1:11434",
+  model: "llama3.2-vision",
+};
+
+const PROVIDER_LABELS = {
+  gemini: "Gemini",
+  deepseek: "DeepSeek",
+  mistral: "Mistral",
+  openrouter: "OpenRouter",
+  agnes: "Agnes AI",
+  ollama: "Ollama",
+};
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -60,6 +74,7 @@ export default function Home() {
     mistral: "",
     openrouter: "",
     agnes: "",
+    ollama: "",
   });
   const [keyStatuses, setKeyStatuses] = useState({
     gemini: "not-set",
@@ -67,13 +82,16 @@ export default function Home() {
     mistral: "not-set",
     openrouter: "not-set",
     agnes: "not-set",
+    ollama: "not-set",
   });
+  const [ollamaConfig, setOllamaConfig] = useState(DEFAULT_OLLAMA_CONFIG);
   const [testFeedback, setTestFeedback] = useState({
     gemini: null,
     deepseek: null,
     mistral: null,
     openrouter: null,
     agnes: null,
+    ollama: null,
   });
 
   const [showSettings, setShowSettings] = useState(false);
@@ -99,6 +117,8 @@ export default function Home() {
     const mistralKey = localStorage.getItem("mstock_key_mistral") || "";
     const openrouterKey = localStorage.getItem("mstock_key_openrouter") || "";
     const agnesKey = localStorage.getItem("mstock_key_agnes") || "";
+    const savedOllamaBaseUrl = localStorage.getItem("mstock_ollama_base_url") || DEFAULT_OLLAMA_CONFIG.baseUrl;
+    const savedOllamaModel = localStorage.getItem("mstock_ollama_model") || DEFAULT_OLLAMA_CONFIG.model;
     const savedPlatform = localStorage.getItem("mstock_target_platform") || "adobe_stock";
     setTargetPlatform(savedPlatform);
     setActiveTab(savedPlatform);
@@ -109,8 +129,10 @@ export default function Home() {
       mistral: mistralKey,
       openrouter: openrouterKey,
       agnes: agnesKey,
+      ollama: "",
     };
     setApiKeys(loadedKeys);
+    setOllamaConfig({ baseUrl: savedOllamaBaseUrl, model: savedOllamaModel });
 
     setKeyStatuses({
       gemini: geminiKey ? "connected" : "not-set",
@@ -118,6 +140,7 @@ export default function Home() {
       mistral: mistralKey ? "connected" : "not-set",
       openrouter: openrouterKey ? "connected" : "not-set",
       agnes: agnesKey ? "connected" : "not-set",
+      ollama: "not-set",
     });
   }, []);
 
@@ -137,7 +160,28 @@ export default function Home() {
     setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
   }
 
+  function handleOllamaConfigChange(nextConfig) {
+    setOllamaConfig({
+      baseUrl: nextConfig.baseUrl ?? "",
+      model: nextConfig.model ?? "",
+    });
+    setTestFeedback((prev) => ({ ...prev, ollama: null }));
+  }
+
   function handleSaveKey(providerId) {
+    if (providerId === "ollama") {
+      const baseUrl = ollamaConfig.baseUrl.trim();
+      const model = ollamaConfig.model.trim();
+      localStorage.setItem("mstock_ollama_base_url", baseUrl);
+      localStorage.setItem("mstock_ollama_model", model);
+      setKeyStatuses((prev) => ({ ...prev, ollama: baseUrl && model ? "connected" : "not-set" }));
+      setTestFeedback((prev) => ({
+        ...prev,
+        ollama: baseUrl && model ? { ok: true, message: "Ollama settings saved locally." } : null,
+      }));
+      return;
+    }
+
     const key = apiKeys[providerId]?.trim() || "";
     localStorage.setItem(`mstock_key_${providerId}`, key);
     if (providerId === "gemini") {
@@ -154,6 +198,15 @@ export default function Home() {
   }
 
   function handleClearKey(providerId) {
+    if (providerId === "ollama") {
+      localStorage.removeItem("mstock_ollama_base_url");
+      localStorage.removeItem("mstock_ollama_model");
+      setOllamaConfig(DEFAULT_OLLAMA_CONFIG);
+      setKeyStatuses((prev) => ({ ...prev, ollama: "not-set" }));
+      setTestFeedback((prev) => ({ ...prev, ollama: null }));
+      return;
+    }
+
     localStorage.removeItem(`mstock_key_${providerId}`);
     if (providerId === "gemini") {
       localStorage.removeItem("mstock_gemini_key");
@@ -165,7 +218,10 @@ export default function Home() {
 
   async function handleTestConnection(providerId) {
     const key = apiKeys[providerId]?.trim();
-    if (!key) return;
+    const isOllama = providerId === "ollama";
+    const baseUrl = ollamaConfig.baseUrl.trim();
+    const model = ollamaConfig.model.trim();
+    if (isOllama ? !baseUrl || !model : !key) return;
 
     setKeyStatuses((prev) => ({ ...prev, [providerId]: "testing" }));
     setTestFeedback((prev) => ({ ...prev, [providerId]: null }));
@@ -174,7 +230,11 @@ export default function Home() {
       const res = await fetch("/api/test-connection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: providerId, apiKey: key }),
+        body: JSON.stringify(
+          isOllama
+            ? { provider: providerId, ollamaBaseUrl: baseUrl, ollamaModel: model }
+            : { provider: providerId, apiKey: key }
+        ),
       });
       const data = await res.json();
 
@@ -235,7 +295,10 @@ export default function Home() {
 
   async function processOne(index) {
     const currentKey = apiKeys[activeProvider]?.trim();
-    if (!currentKey) {
+    const isOllama = activeProvider === "ollama";
+    const ollamaBaseUrl = ollamaConfig.baseUrl.trim();
+    const ollamaModel = ollamaConfig.model.trim();
+    if (isOllama ? !ollamaBaseUrl || !ollamaModel : !currentKey) {
       setShowSettings(true);
       return;
     }
@@ -254,11 +317,18 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
           "X-Provider": activeProvider,
-          "X-Provider-Key": currentKey,
+          ...(isOllama
+            ? {
+              "X-Ollama-Base-Url": ollamaBaseUrl,
+              "X-Ollama-Model": ollamaModel,
+            }
+            : { "X-Provider-Key": currentKey }),
         },
         body: JSON.stringify({
           provider: activeProvider,
-          apiKey: currentKey,
+          ...(isOllama
+            ? { ollamaBaseUrl, ollamaModel }
+            : { apiKey: currentKey }),
           imageBase64: base64,
           mimeType: "image/jpeg",
           context,
@@ -283,7 +353,9 @@ export default function Home() {
 
   async function runBatch() {
     const currentKey = apiKeys[activeProvider]?.trim();
-    if (!currentKey) {
+    const isOllama = activeProvider === "ollama";
+    const ollamaReady = Boolean(ollamaConfig.baseUrl.trim() && ollamaConfig.model.trim());
+    if (isOllama ? !ollamaReady : !currentKey) {
       setShowSettings(true);
       return;
     }
@@ -431,7 +503,7 @@ export default function Home() {
               <span className="status__dot" />
             </span>
             <IconSettings width={14} height={14} />
-            Settings ({activeProvider === "agnes" ? "Agnes AI" : activeProvider === "openrouter" ? "OpenRouter" : activeProvider === "mistral" ? "Mistral" : activeProvider === "deepseek" ? "DeepSeek" : "Gemini"})
+            Settings ({PROVIDER_LABELS[activeProvider] || "Gemini"})
           </button>
         </header>
 
@@ -469,6 +541,8 @@ export default function Home() {
           onChangeProvider={handleProviderChange}
           apiKeys={apiKeys}
           onChangeApiKey={handleApiKeyChange}
+          ollamaConfig={ollamaConfig}
+          onChangeOllamaConfig={handleOllamaConfigChange}
           keyStatuses={keyStatuses}
           testFeedback={testFeedback}
           onSave={handleSaveKey}
