@@ -58,16 +58,22 @@ export default function Home() {
     gemini: "",
     deepseek: "",
     mistral: "",
+    openrouter: "",
+    agnes: "",
   });
   const [keyStatuses, setKeyStatuses] = useState({
     gemini: "not-set",
     deepseek: "not-set",
     mistral: "not-set",
+    openrouter: "not-set",
+    agnes: "not-set",
   });
   const [testFeedback, setTestFeedback] = useState({
     gemini: null,
     deepseek: null,
     mistral: null,
+    openrouter: null,
+    agnes: null,
   });
 
   const [showSettings, setShowSettings] = useState(false);
@@ -75,6 +81,7 @@ export default function Home() {
   const [items, setItems] = useState([]);
   const [activeIndex, setActiveIndex] = useState(null);
   const [activeTab, setActiveTab] = useState("adobe_stock");
+  const [targetPlatform, setTargetPlatform] = useState("adobe_stock");
   const [running, setRunning] = useState(false);
   const [aiGenerated, setAiGenerated] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -90,11 +97,18 @@ export default function Home() {
     const geminiKey = localStorage.getItem("mstock_key_gemini") || localStorage.getItem("mstock_gemini_key") || "";
     const deepseekKey = localStorage.getItem("mstock_key_deepseek") || "";
     const mistralKey = localStorage.getItem("mstock_key_mistral") || "";
+    const openrouterKey = localStorage.getItem("mstock_key_openrouter") || "";
+    const agnesKey = localStorage.getItem("mstock_key_agnes") || "";
+    const savedPlatform = localStorage.getItem("mstock_target_platform") || "adobe_stock";
+    setTargetPlatform(savedPlatform);
+    setActiveTab(savedPlatform);
 
     const loadedKeys = {
       gemini: geminiKey,
       deepseek: deepseekKey,
       mistral: mistralKey,
+      openrouter: openrouterKey,
+      agnes: agnesKey,
     };
     setApiKeys(loadedKeys);
 
@@ -102,6 +116,8 @@ export default function Home() {
       gemini: geminiKey ? "connected" : "not-set",
       deepseek: deepseekKey ? "connected" : "not-set",
       mistral: mistralKey ? "connected" : "not-set",
+      openrouter: openrouterKey ? "connected" : "not-set",
+      agnes: agnesKey ? "connected" : "not-set",
     });
   }, []);
 
@@ -246,13 +262,14 @@ export default function Home() {
           imageBase64: base64,
           mimeType: "image/jpeg",
           context,
+          targetPlatform,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");
       setItems((prev) => {
         const copy = [...prev];
-        copy[index] = { ...copy[index], status: "done", result: data, error: null };
+        copy[index] = { ...copy[index], status: "done", result: data, targetPlatform, error: null };
         return copy;
       });
     } catch (err) {
@@ -305,20 +322,21 @@ export default function Home() {
 
   function exportCsv(platform) {
     let csv, name;
+    const platformItems = doneItems.filter((item) => item.result?.platforms?.[platform]);
     if (platform === "adobe_stock") {
-      csv = buildAdobeStockCsv(doneItems);
+      csv = buildAdobeStockCsv(platformItems);
       name = "adobe_stock.csv";
     } else if (platform === "shutterstock") {
-      csv = buildShutterstockCsv(doneItems);
+      csv = buildShutterstockCsv(platformItems);
       name = "shutterstock.csv";
     } else if (platform === "freepik_vecteezy") {
-      csv = buildFreepikCsv(doneItems, { aiGenerated });
+      csv = buildFreepikCsv(platformItems, { aiGenerated });
       name = "freepik.csv";
     } else if (platform === "istock_getty") {
-      csv = buildIstockGettyCsv(doneItems);
+      csv = buildIstockGettyCsv(platformItems);
       name = "istock_getty.csv";
     } else {
-      csv = buildGenericCsv(doneItems, platform);
+      csv = buildGenericCsv(platformItems, platform);
       name = `${platform}.csv`;
     }
     downloadCsv(csv, name);
@@ -355,7 +373,7 @@ export default function Home() {
         onAddClick={openPicker}
         onSelect={(idx) => {
           setActiveIndex(idx);
-          setActiveTab("adobe_stock");
+          setActiveTab(items[idx]?.targetPlatform || targetPlatform);
         }}
         onRemove={removeItem}
         onRunBatch={runBatch}
@@ -375,6 +393,24 @@ export default function Home() {
 
       <main className="main" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         <header className="topbar">
+          <select
+            className="input"
+            style={{ width: 175, flexShrink: 0 }}
+            value={targetPlatform}
+            aria-label="Target marketplace"
+            disabled={running}
+            onChange={(e) => {
+              const platform = e.target.value;
+              setTargetPlatform(platform);
+              setActiveTab(platform);
+              localStorage.setItem("mstock_target_platform", platform);
+            }}
+          >
+            <option value="adobe_stock">Adobe Stock only</option>
+            <option value="shutterstock">Shutterstock only</option>
+            <option value="freepik_vecteezy">Freepik only</option>
+            <option value="istock_getty">iStock / Getty only</option>
+          </select>
           <div className="input-wrap">
             <span className="input-wrap__icon">
               <IconSparkles width={14} height={14} />
@@ -395,7 +431,7 @@ export default function Home() {
               <span className="status__dot" />
             </span>
             <IconSettings width={14} height={14} />
-            Settings ({activeProvider === "mistral" ? "Mistral" : activeProvider === "deepseek" ? "DeepSeek" : "Gemini"})
+            Settings ({activeProvider === "agnes" ? "Agnes AI" : activeProvider === "openrouter" ? "OpenRouter" : activeProvider === "mistral" ? "Mistral" : activeProvider === "deepseek" ? "DeepSeek" : "Gemini"})
           </button>
         </header>
 
@@ -422,6 +458,7 @@ export default function Home() {
             onExport={exportCsv}
             aiGenerated={aiGenerated}
             onToggleAiGenerated={setAiGenerated}
+            availablePlatforms={[...new Set(doneItems.flatMap((item) => Object.keys(item.result?.platforms || {})))]}
           />
         )}
       </main>

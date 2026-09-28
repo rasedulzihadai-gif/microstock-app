@@ -99,7 +99,7 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
       {item.result && (
         <>
           <nav className="tabs" aria-label="Platform">
-            {PLATFORM_TABS.map((t) => (
+            {PLATFORM_TABS.filter((t) => item.result?.platforms?.[t.key]).map((t) => (
               <button
                 key={t.key}
                 className={`tab${activeTab === t.key ? " tab--active" : ""}`}

@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT, FALLBACK_REMINDER } from "../../../lib/prompt";
+import { buildPlatformPrompt, FALLBACK_REMINDER, PLATFORM_NAMES } from "../../../lib/prompt";
 import { enforceOutputRules } from "../../../lib/enforce-rules";
 
 export const maxDuration = 60;
@@ -19,6 +19,16 @@ const PROVIDER_FALLBACK_CHAINS = {
     "pixtral-12b-2409",
     "pixtral-large-latest",
     "pixtral-12b",
+  ],
+  openrouter: [
+    "google/gemini-2.5-flash",
+    "openai/gpt-4.1-mini",
+    "qwen/qwen2.5-vl-72b-instruct",
+  ],
+  agnes: [
+    "agnes-3.0-flash",
+    "agnes-2.5-pro",
+    "agnes-2.5-flash",
   ],
 };
 
@@ -76,6 +86,59 @@ async function callDeepSeek(modelId, apiKey, systemPrompt, userText, mimeType, i
       ],
       response_format: { type: "json_object" },
       temperature: 0.35,
+    }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "HTTP-Referer": "https://microstock-metadata.app",
+      "X-Title": "Microstock Metadata App",
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: [
+          { type: "text", text: userText },
+          { type: "image_url", image_url: { url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}` } },
+        ] },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.35,
+    }),
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64) {
+  const res = await fetch("https://apihub.agnes-ai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}` } },
+          ],
+        },
+      ],
+      temperature: 0.35,
+      max_tokens: 4096,
     }),
   });
   const data = await res.json();
@@ -149,7 +212,7 @@ export async function POST(req) {
 
   const apiKey = headerKey || body.apiKey;
   if (!apiKey) {
-    const providerName = provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
+    const providerName = provider === "agnes" ? "Agnes AI" : provider === "openrouter" ? "OpenRouter" : provider === "mistral" ? "Mistral" : provider === "deepseek" ? "DeepSeek" : "Gemini";
     return Response.json(
       { error: `Missing API key. Add your ${providerName} API key in Settings first.` },
       { status: 400 }
@@ -157,6 +220,8 @@ export async function POST(req) {
   }
 
   const { imageBase64, mimeType, context } = body;
+  const targetPlatform = PLATFORM_NAMES[body.targetPlatform] ? body.targetPlatform : "adobe_stock";
+  const systemPrompt = buildPlatformPrompt(targetPlatform);
   if (!imageBase64) {
     return Response.json({ error: "No image provided." }, { status: 400 });
   }
@@ -176,11 +241,15 @@ export async function POST(req) {
     try {
       let callResult;
       if (provider === "deepseek") {
-        callResult = await callDeepSeek(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+        callResult = await callDeepSeek(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else if (provider === "mistral") {
-        callResult = await callMistral(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+        callResult = await callMistral(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "openrouter") {
+        callResult = await callOpenRouter(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
+      } else if (provider === "agnes") {
+        callResult = await callAgnes(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       } else {
-        callResult = await callGemini(modelId, apiKey, SYSTEM_PROMPT, userText, mimeType, imageBase64);
+        callResult = await callGemini(modelId, apiKey, systemPrompt, userText, mimeType, imageBase64);
       }
 
       const { ok, status, data } = callResult;
@@ -221,7 +290,7 @@ export async function POST(req) {
         }
       }
 
-      const enforced = enforceOutputRules(parsed);
+      const enforced = enforceOutputRules(parsed, targetPlatform);
 
       return Response.json({
         ...enforced,
