@@ -63,19 +63,13 @@ export function buildShutterstockCsv(items) {
   return toCsv(rows);
 }
 
-// Freepik official bulk-CSV spec, re-verified directly against their live
-// support article (support.freepik.com / magnific.com "How to create a
-// csv file"): semicolon-delimited, and — this is the part that was wrong
-// before — every field wrapped in SINGLE quotes, not double quotes. Their
-// own example row is literally:
-//   'beautiful-sunset.jpg';'Beautiful sunset';'sunset,sun,summer,beach,mountain'
-// Keywords stay comma-joined INSIDE that single-quoted keywords field.
-// No header row in their examples, so we don't emit one either.
+// Freepik bulk-CSV spec: semicolon-delimited plain fields, with no header.
+// Do not wrap fields in single quotes: that makes the first and last keyword
+// import as `"'united states"` and `"template'"`.
 function csvEscapeFreepik(value) {
-  const s = String(value ?? "");
-  // Double up any embedded single quote, the same escaping convention as
-  // doubling double-quotes in standard CSV.
-  return `'${s.replace(/'/g, "''")}'`;
+  return String(value ?? "")
+    .replace(/[;\r\n]+/g, " ")
+    .trim();
 }
 
 function toFreepikCsv(rows) {
