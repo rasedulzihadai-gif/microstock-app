@@ -1,41 +1,9 @@
-"use client";
-import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { IconSparkles, IconUpload } from "../components/icons";
 
-const MicrostockApp = dynamic(() => import("../components/microstock-app"), {
-  ssr: false,
-  loading: () => (
-    <main className="app-loading" aria-live="polite">
-      <div className="app-loading__mark"><IconSparkles width={21} height={21} /></div>
-      <p>Preparing your workspace…</p>
-    </main>
-  ),
-});
-
 export default function LandingPage() {
-  const [isOpening, setIsOpening] = useState(false);
-  const [isAppOpen, setIsAppOpen] = useState(false);
-  const launchTimer = useRef(null);
-
-  useEffect(() => () => window.clearTimeout(launchTimer.current), []);
-
-  function openApp() {
-    if (isOpening) return;
-    setIsOpening(true);
-    launchTimer.current = window.setTimeout(() => setIsAppOpen(true), 430);
-  }
-
-  if (isAppOpen) {
-    return (
-      <div className="workspace-enter">
-        <MicrostockApp />
-      </div>
-    );
-  }
-
   return (
-    <main className={`landing${isOpening ? " landing--leaving" : ""}`}>
+    <main className="landing">
       <div className="landing__glow landing__glow--one" />
       <div className="landing__glow landing__glow--two" />
 
@@ -57,11 +25,11 @@ export default function LandingPage() {
             Turn your visual library into precise titles, relevant keywords, and export-ready metadata for the stock platforms that matter.
           </p>
           <div className="landing__actions">
-            <button className="landing__cta" onClick={openApp} disabled={isOpening}>
+            <Link className="landing__cta" href="/app">
               <IconSparkles width={17} height={17} />
-              <span>{isOpening ? "Opening workspace…" : "Open app"}</span>
+              <span>Open app</span>
               <span className="landing__cta-arrow" aria-hidden="true">→</span>
-            </button>
+            </Link>
             <span className="landing__helper">Bring your own AI provider</span>
           </div>
           <div className="landing__signals" aria-label="Lightbox features">

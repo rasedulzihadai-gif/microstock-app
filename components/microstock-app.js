@@ -13,7 +13,7 @@ import { Inspector } from "./inspector";
 import { SettingsDrawer } from "./settings-drawer";
 import { ExportBar } from "./export-bar";
 import { Dropzone } from "./dropzone";
-import { IconSettings, IconSparkles } from "./icons";
+import { IconRefresh, IconSettings, IconSparkles } from "./icons";
 
 const DEFAULT_OLLAMA_CONFIG = {
   baseUrl: "http://127.0.0.1:11434",
@@ -137,6 +137,20 @@ export default function MicrostockApp() {
   const fileInputRef = useRef(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+
+  // A full reload clears the in-memory image queue and any generated metadata.
+  // Let the browser warn before that work is discarded; reloading /app will
+  // still return to this workspace rather than the landing page.
+  useEffect(() => {
+    if (items.length === 0 && !running && !context.trim()) return undefined;
+
+    const warnBeforeLeaving = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [items.length, running, context]);
 
   // Load saved provider & keys from localStorage on mount
   useEffect(() => {
@@ -598,6 +612,16 @@ export default function MicrostockApp() {
               aria-label="Generation context"
             />
           </div>
+          <button
+            type="button"
+            className="btn btn--ghost topbar__refresh"
+            onClick={() => window.location.reload()}
+            aria-label="Refresh workspace"
+            title="Refresh workspace"
+          >
+            <IconRefresh width={14} height={14} />
+            <span>Refresh</span>
+          </button>
           <button className="btn btn--ghost" onClick={() => setShowSettings(true)}>
             <span
               className={`status status--${currentStatus === "connected" ? "done" : "pending"}`}
