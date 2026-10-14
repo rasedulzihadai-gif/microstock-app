@@ -48,7 +48,13 @@ function KeywordChip({ text, onRemove }) {
 }
 
 export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemoveKeyword }) {
-  const platform = item.result?.platforms?.[activeTab];
+  const availableTabs = PLATFORM_TABS.filter((t) => item.result?.platforms?.[t.key]);
+  // A result only carries the marketplaces that were generated, while the
+  // toolbar remembers the last target. Fall back to a tab this item really has
+  // instead of rendering empty title/keyword panels.
+  const activeKey = item.result?.platforms?.[activeTab] ? activeTab : availableTabs[0]?.key;
+  const platform = activeKey ? item.result?.platforms?.[activeKey] : undefined;
+  const warnings = Array.isArray(item.result?._meta?.warnings) ? item.result._meta.warnings : [];
 
   return (
     <div className="inspector" key={index}>
@@ -99,12 +105,12 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
       {item.result && (
         <>
           <nav className="tabs" aria-label="Platform">
-            {PLATFORM_TABS.filter((t) => item.result?.platforms?.[t.key]).map((t) => (
+            {availableTabs.map((t) => (
               <button
                 key={t.key}
-                className={`tab${activeTab === t.key ? " tab--active" : ""}`}
+                className={`tab${activeKey === t.key ? " tab--active" : ""}`}
                 onClick={() => onTabChange(t.key)}
-                aria-selected={activeTab === t.key}
+                aria-selected={activeKey === t.key}
                 role="tab"
               >
                 {t.label}
@@ -129,10 +135,17 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
             </div>
             <div className="chips">
               {platform?.keywords.map((kw, i) => (
-                <KeywordChip key={`${kw}-${i}`} text={kw} onRemove={() => onRemoveKeyword(index, activeTab, i)} />
+                <KeywordChip key={`${kw}-${i}`} text={kw} onRemove={() => onRemoveKeyword(item.id, activeKey, i)} />
               ))}
             </div>
           </section>
+
+          {warnings.length > 0 && (
+            <div className="notice notice--warn">
+              <IconAlert width={15} height={15} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div className="notice__body">{warnings.join(" ")}</div>
+            </div>
+          )}
 
           {item.result.flags?.length > 0 && (
             <div className="notice notice--warn">

@@ -164,12 +164,14 @@ button:disabled {
   width: 100%;
 }
 
+/* Must match QUEUE_ROW_HEIGHT in components/sidebar.js or the virtualized
+   rows drift away from the scrollbar position on long queues. */
 .sidebar__virtual-row {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 54px;
+  height: 56px;
 }
 
 .sidebar__footer {
@@ -232,6 +234,11 @@ button:disabled {
 .content__inner {
   max-width: 880px;
   margin: 0 auto;
+}
+
+.content__notice {
+  max-width: 880px;
+  margin: 0 auto 16px;
 }
 
 /* ---------------------------------------------------------------------- */

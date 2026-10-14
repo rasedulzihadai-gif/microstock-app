@@ -1,4 +1,6 @@
 import {
+  ALL_PLATFORMS_KEY,
+  PLATFORM_KEYS,
   buildPlatformPrompt,
   FALLBACK_REMINDER,
   isSupportedTargetPlatform,
@@ -13,6 +15,16 @@ import {
 } from "../../../lib/ollama";
 
 export const maxDuration = 60;
+
+// A model can answer with technically valid JSON while leaving the metadata
+// empty ({} , {"platforms":{}} , blank strings). Accepting that would hand the
+// contributor silently blank titles, zero keywords and empty CSV rows, so each
+// requested marketplace block has to carry at least a real title and a handful
+// of keywords before a response counts as a success. The bar is deliberately
+// low: it exists to reject broken output, not to second-guess a complete answer
+// and spend another paid API call on it.
+const MIN_TITLE_LENGTH = 15;
+const MIN_KEYWORDS = 5;
 
 const PROVIDER_FALLBACK_CHAINS = {
   gemini: [
@@ -349,6 +361,50 @@ function cleanJsonText(raw) {
   return text.trim();
 }
 
+/** The marketplace blocks a response must contain for the requested target. */
+function requestedPlatformKeys(targetPlatform) {
+  return targetPlatform === ALL_PLATFORMS_KEY ? PLATFORM_KEYS : [targetPlatform];
+}
+
+function isBlockUsable(block) {
+  return Boolean(
+    block
+    && String(block.title || "").trim().length >= MIN_TITLE_LENGTH
+    && Array.isArray(block.keywords)
+    && block.keywords.length >= MIN_KEYWORDS
+  );
+}
+
+/**
+ * Reports which requested marketplace blocks are missing or too thin to be
+ * worth exporting. Empty array means the response is complete.
+ */
+function findMetadataGaps(enforced, platformKeys) {
+  const gaps = [];
+  for (const key of platformKeys) {
+    const block = enforced?.platforms?.[key];
+    if (!block || !String(block.title || "").trim()) {
+      gaps.push(`${key}: no title`);
+      continue;
+    }
+    if (String(block.title).trim().length < MIN_TITLE_LENGTH) {
+      gaps.push(`${key}: title too short`);
+      continue;
+    }
+    const count = Array.isArray(block.keywords) ? block.keywords.length : 0;
+    if (count < MIN_KEYWORDS) {
+      gaps.push(`${key}: ${count} of ${MIN_KEYWORDS} keywords`);
+    }
+  }
+  return gaps;
+}
+
+/** Human-readable note shown in the app when only part of the data is usable. */
+function partialWarning(gaps) {
+  const names = gaps.map((gap) => gap.split(":")[0]).join(", ");
+  return `Incomplete metadata for ${names}. Regenerate this image, or add titles and keywords by hand before exporting.`;
+}
+
 export async function POST(req) {
   let body = {};
   try {
@@ -442,8 +498,12 @@ export async function POST(req) {
       .map((model) => String(model || "").trim())
       .filter(Boolean)
   )];
+  const platformKeys = requestedPlatformKeys(targetPlatform);
   let lastError = null;
   let lastStatus = 500;
+  // Best "usable but incomplete" answer seen so far — returned only when every
+  // model in the chain falls short, so one thin block never discards the rest.
+  let bestPartial = null;
 
   for (let i = 0; i < fallbackChain.length; i++) {
     const modelId = fallbackChain[i];
@@ -514,20 +574,45 @@ export async function POST(req) {
       }
 
       const enforced = enforceOutputRules(parsed, targetPlatform);
+      const gaps = findMetadataGaps(enforced, platformKeys);
 
-      return Response.json({
-        ...enforced,
-        _meta: {
-          provider,
-          modelUsed: modelId,
-          fellBack: i > 0,
-        },
-      });
+      if (gaps.length === 0) {
+        return Response.json({
+          ...enforced,
+          _meta: {
+            provider,
+            modelUsed: modelId,
+            fellBack: i > 0,
+          },
+        });
+      }
+
+      const usableCount = platformKeys.filter((key) => isBlockUsable(enforced.platforms?.[key])).length;
+      if (usableCount > 0 && (!bestPartial || usableCount > bestPartial.usableCount)) {
+        bestPartial = { enforced, gaps, usableCount, modelId, fellBack: i > 0 };
+      }
+
+      lastError = `${modelId} returned incomplete metadata (${gaps.join("; ")}).`;
+      lastStatus = 502;
+      continue;
     } catch (err) {
       lastError = String(err.message || err);
       lastStatus = 500;
       continue;
     }
+  }
+
+  if (bestPartial) {
+    return Response.json({
+      ...bestPartial.enforced,
+      _meta: {
+        provider,
+        modelUsed: bestPartial.modelId,
+        fellBack: bestPartial.fellBack,
+        partial: true,
+        warnings: [partialWarning(bestPartial.gaps)],
+      },
+    });
   }
 
   return Response.json(
