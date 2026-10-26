@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import { StatusDot } from "./status-dot";
 import { IconAlert, IconCheck, IconCopy, IconRefresh, IconX } from "./icons";
+import { vectorFormatBadge, vectorFormatLabel } from "../lib/file-types";
+import { describePreviewMethod } from "../lib/vector-preview";
 
 export const PLATFORM_TABS = [
   { key: "adobe_stock", label: "Adobe Stock" },
@@ -56,15 +58,56 @@ export function Inspector({ item, index, activeTab, onTabChange, onRetry, onRemo
   const platform = activeKey ? item.result?.platforms?.[activeKey] : undefined;
   const warnings = Array.isArray(item.result?._meta?.warnings) ? item.result._meta.warnings : [];
 
+  const isVector = item.kind === "vector";
+  const sourceNotes = Array.isArray(item.sourceMeta?.notes) ? item.sourceMeta.notes : [];
+  const artboardHint = isVector && item.sourceMeta?.pages > 1 ? ` · ${item.sourceMeta.pages} artboards` : "";
+
   return (
     <div className="inspector" key={index}>
       <header className="inspector__header">
-        <img className="inspector__preview" src={item.previewUrl} alt={item.filename} decoding="async" />
+        {item.previewUrl ? (
+          <img className="inspector__preview" src={item.previewUrl} alt={item.filename} decoding="async" />
+        ) : (
+          <div
+            className="inspector__preview inspector__preview--fallback"
+            role="img"
+            aria-label={`${vectorFormatLabel(item.format)} file, preview not rendered yet`}
+          >
+            <span className="inspector__preview-badge">
+              {isVector ? vectorFormatBadge(item.format) : "IMG"}
+            </span>
+            <span>{item.previewState === "failed" ? "No preview" : "Rendering…"}</span>
+          </div>
+        )}
         <div className="inspector__meta">
           <div className="inspector__title-row">
             <h2 className="inspector__filename">{item.filename}</h2>
             <StatusDot status={item.status} pill />
           </div>
+
+          {isVector && (
+            <p className="inspector__source">
+              <span className="badge">{vectorFormatBadge(item.format)}</span>
+              <span>
+                {vectorFormatLabel(item.format)}
+                {item.sourceMeta?.method ? ` · ${describePreviewMethod(item.sourceMeta.method)}` : ""}
+                {artboardHint}
+              </span>
+            </p>
+          )}
+
+          {item.previewError && (
+            <div className="notice notice--warn" role="status">
+              <IconAlert width={15} height={15} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div className="notice__body">{item.previewError}</div>
+            </div>
+          )}
+
+          {sourceNotes.map((note) => (
+            <p className="notice notice--muted" key={note} style={{ margin: 0 }}>
+              {note}
+            </p>
+          ))}
 
           {item.status === "error" && (
             <div className="notice notice--error" role="alert">

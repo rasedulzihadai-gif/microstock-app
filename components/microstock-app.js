@@ -13,6 +13,13 @@ import { Inspector } from "./inspector";
 import { SettingsDrawer } from "./settings-drawer";
 import { ExportBar } from "./export-bar";
 import { Dropzone } from "./dropzone";
+import {
+  ACCEPTED_FORMATS_HINT,
+  isSupportedSourceFile,
+  vectorFormatFor,
+  vectorFormatLabel,
+} from "../lib/file-types";
+import { renderVectorPreview } from "../lib/vector-preview";
 import { IconAlert, IconRefresh, IconSettings, IconSparkles, IconX } from "./icons";
 
 const DEFAULT_OLLAMA_CONFIG = {
@@ -47,26 +54,17 @@ function getResultPlatformTab(item, fallbackPlatform = DEFAULT_PLATFORM_TAB) {
   return available[0] || DEFAULT_PLATFORM_TAB;
 }
 
-// Extensions we accept when a browser reports no MIME type for a dropped file
-// (common with drag-and-drop, weTransfer folders and some cloud drives).
-const SUPPORTED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "avif", "heic", "heif"];
 // A file that never fires load or error (corrupt data, unsupported codec)
 // would otherwise leave the queue stuck on "Working" forever.
 const IMAGE_DECODE_TIMEOUT_MS = 20000;
 const UNSUPPORTED_IMAGE_HINT =
-  "Formats such as HEIC, HEIF, TIFF, RAW or PSD cannot be read by the browser — convert the file to JPG, PNG or WEBP and add it again.";
-
-function fileExtension(name) {
-  const parts = String(name || "").split(".");
-  return parts.length > 1 ? parts.pop().toLowerCase() : "";
-}
-
-function isSupportedImageFile(file) {
-  const type = String(file?.type || "").toLowerCase();
-  if (type.startsWith("image/")) return true;
-  // No MIME type: trust a known image extension instead of dropping the file.
-  return !type && SUPPORTED_IMAGE_EXTENSIONS.includes(fileExtension(file?.name));
-}
+  "Formats such as TIFF, RAW or PSD cannot be read by the browser — convert the file to JPG, PNG or WEBP, or add the Illustrator (.ai), PDF or SVG source instead.";
+// Resolution the vector artwork is rasterised at: enough detail for the vision
+// model and a crisp inspector thumbnail without ballooning the request.
+const VECTOR_PREVIEW_MAX_DIM = 1400;
+// Rasterising a 40 MB .ai file is real CPU work, so previews are prepared two
+// at a time rather than all at once.
+const VECTOR_PREVIEW_CONCURRENCY = 2;
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -213,6 +211,18 @@ export default function MicrostockApp() {
   const fileInputRef = useRef(null);
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  // Adobe Illustrator / EPS / PDF / SVG files are rasterised before analysis.
+  // The rendered JPEG and its metadata are cached per queue item so a retry or
+  // a batch run never renders the same artwork twice.
+  const preparedRef = useRef(new Map());
+  const prepareQueueRef = useRef([]);
+  const prepareWorkersRef = useRef(0);
+  // A tiny SVG can render before React has committed the queue row it belongs
+  // to. Those patches wait here and are applied as soon as the row exists.
+  const pendingPatchesRef = useRef(new Map());
+  // Files removed from the queue should not finish a render the user no longer
+  // wants; the id is remembered so an in-flight job can bail out.
+  const removedIdsRef = useRef(new Set());
 
   // A full reload clears the in-memory image queue and any generated metadata.
   // Let the browser warn before that work is discarded; reloading /app will
@@ -430,21 +440,119 @@ export default function MicrostockApp() {
     }
   }
 
+  /**
+   * Queues a vector source for rasterisation. Returns a promise that resolves
+   * with { file, preview } — the JPEG the AI model analyzes plus the details of
+   * how it was produced. Repeated calls for the same item share one render.
+   */
+  function prepareVectorItem(item) {
+    const existing = preparedRef.current.get(item.id);
+    if (existing?.promise) return existing.promise;
+
+    let resolveJob;
+    let rejectJob;
+    const promise = new Promise((resolve, reject) => {
+      resolveJob = resolve;
+      rejectJob = reject;
+    });
+    // Nobody may ever await this promise (the user can remove the file or never
+    // press Generate), so keep the rejection from surfacing as an unhandled one.
+    promise.catch(() => {});
+
+    preparedRef.current.set(item.id, { promise });
+    prepareQueueRef.current.push({ item, resolve: resolveJob, reject: rejectJob });
+    runPrepareQueue();
+    return promise;
+  }
+
+  function runPrepareQueue() {
+    while (prepareWorkersRef.current < VECTOR_PREVIEW_CONCURRENCY && prepareQueueRef.current.length > 0) {
+      const job = prepareQueueRef.current.shift();
+      prepareWorkersRef.current += 1;
+
+      const isGone = () => removedIdsRef.current.has(job.item.id);
+
+      (async () => {
+        try {
+          if (isGone()) throw new Error("This file was removed from the queue.");
+          const preview = await renderVectorPreview(job.item.file, { maxDim: VECTOR_PREVIEW_MAX_DIM });
+          const analysisFile = new File(
+            [preview.blob],
+            `${job.item.filename.replace(/\.[^.]+$/, "") || job.item.filename}.jpg`,
+            { type: "image/jpeg" }
+          );
+          const previewUrl = URL.createObjectURL(preview.blob);
+          if (isGone()) {
+            // The row disappeared while the artwork was rendering.
+            URL.revokeObjectURL(previewUrl);
+            job.reject(new Error("This file was removed from the queue."));
+            return;
+          }
+          const entry = preparedRef.current.get(job.item.id);
+
+          preparedRef.current.set(job.item.id, {
+            promise: entry?.promise,
+            file: analysisFile,
+            preview,
+          });
+          updateItem(job.item.id, {
+            previewUrl,
+            previewState: "ready",
+            previewError: null,
+            sourceMeta: {
+              method: preview.method,
+              pages: preview.pages ?? null,
+              width: preview.width,
+              height: preview.height,
+              notes: preview.notes || [],
+              meta: preview.meta || null,
+            },
+          });
+          job.resolve({ file: analysisFile, preview });
+        } catch (err) {
+          const message = String(err?.message || err);
+          if (!isGone()) {
+            const entry = preparedRef.current.get(job.item.id);
+            preparedRef.current.set(job.item.id, { promise: entry?.promise, error: message });
+            updateItem(job.item.id, { previewState: "failed", previewError: message });
+          }
+          job.reject(new Error(message));
+        } finally {
+          prepareWorkersRef.current -= 1;
+          runPrepareQueue();
+        }
+      })();
+    }
+  }
+
+  /** The JPEG handed to the vision model: resized raster, or rendered vector. */
+  async function analysisFileFor(itemId, item) {
+    if (item.kind !== "vector") return resizeImage(item.file);
+
+    const entry = preparedRef.current.get(itemId);
+    if (entry?.file) return entry.file;
+    // A failed render is retried on demand (Regenerate / Generate again).
+    if (entry?.error) preparedRef.current.delete(itemId);
+
+    const { file } = await prepareVectorItem(item);
+    return file;
+  }
+
   function handleFiles(fileList) {
     const incoming = Array.from(fileList || []);
     if (incoming.length === 0) return;
 
-    const files = incoming.filter(isSupportedImageFile);
-    const skipped = incoming.filter((file) => !isSupportedImageFile(file));
+    const files = incoming.filter(isSupportedSourceFile);
+    const skipped = incoming.filter((file) => !isSupportedSourceFile(file));
 
     // Never drop files without saying so: an unsupported format used to look
     // like a dead drop area.
     setFileNotice(
       skipped.length
-        ? `Skipped ${skipped.length} file${skipped.length > 1 ? "s" : ""} that ${skipped.length > 1 ? "are" : "is"} not an image: ${skipped
+        ? `Skipped ${skipped.length} file${skipped.length > 1 ? "s" : ""} that ${skipped.length > 1 ? "are" : "is"} not supported: ${skipped
           .slice(0, 4)
           .map((file) => file.name)
-          .join(", ")}${skipped.length > 4 ? ` +${skipped.length - 4} more` : ""}. Add JPG, PNG or WEBP files instead.`
+          .join(", ")}${skipped.length > 4 ? ` +${skipped.length - 4} more` : ""}. Add ${ACCEPTED_FORMATS_HINT} files instead.`
         : null
     );
 
@@ -452,15 +560,26 @@ export default function MicrostockApp() {
 
     // Object URLs are lightweight and thumbnails are virtualized in the queue,
     // so dropping a large folder does not trigger hundreds of image decodes.
-    const newItems = files.map((file) => ({
-      id: createQueueItemId(),
-      filename: file.name,
-      file,
-      previewUrl: URL.createObjectURL(file),
-      status: "pending",
-      result: null,
-      error: null,
-    }));
+    // Vector sources have no browser-decodable bitmap: their thumbnail appears
+    // once the artwork has been rendered.
+    const newItems = files.map((file) => {
+      const format = vectorFormatFor(file);
+      const kind = format ? "vector" : "raster";
+      return {
+        id: createQueueItemId(),
+        filename: file.name,
+        file,
+        kind,
+        format: format || null,
+        previewUrl: kind === "raster" ? URL.createObjectURL(file) : null,
+        previewState: kind === "raster" ? "ready" : "loading",
+        previewError: null,
+        sourceMeta: null,
+        status: "pending",
+        result: null,
+        error: null,
+      };
+    });
 
     const shouldFocusFirstItem = activeIndex === null;
     const firstNewIndex = itemsRef.current.length;
@@ -472,12 +591,20 @@ export default function MicrostockApp() {
     // Selection lives outside the updater above: updaters must stay pure so
     // React can call them again during a re-render.
     if (shouldFocusFirstItem) setActiveIndex(firstNewIndex);
+
+    // Render vector previews immediately instead of waiting for Generate, so the
+    // artboard is visible while the user is still reviewing the queue.
+    newItems.filter((it) => it.kind === "vector").forEach((it) => prepareVectorItem(it));
   }
 
   function removeItem(index) {
     setItems((prev) => {
       const target = prev[index];
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      if (target?.id) {
+        preparedRef.current.delete(target.id);
+        removedIdsRef.current.add(target.id);
+      }
       const next = prev.filter((_, i) => i !== index);
       setActiveIndex((cur) => {
         if (cur === null) return null;
@@ -495,13 +622,26 @@ export default function MicrostockApp() {
    * index — that used to attach one image's metadata to another image.
    */
   function updateItem(itemId, patch) {
+    if (!itemsRef.current.some((it) => it.id === itemId)) {
+      pendingPatchesRef.current.set(itemId, { ...(pendingPatchesRef.current.get(itemId) || {}), ...patch });
+      return;
+    }
     setItems((prev) => prev.map((it) => (it.id === itemId ? { ...it, ...patch } : it)));
   }
+
+  // Flush patches that were produced before their queue row was rendered.
+  useEffect(() => {
+    if (pendingPatchesRef.current.size === 0) return;
+    const patches = pendingPatchesRef.current;
+    pendingPatchesRef.current = new Map();
+    setItems((prev) =>
+      prev.map((it) => (patches.has(it.id) ? { ...it, ...patches.get(it.id) } : it))
+    );
+  }, [items]);
 
   async function processOne(itemId) {
     const target = itemsRef.current.find((it) => it.id === itemId);
     if (!target) return; // Removed from the queue while it was waiting.
-    const file = target.file;
 
     const currentKey = apiKeys[activeProvider]?.trim();
     const isOllama = activeProvider === "ollama";
@@ -517,8 +657,10 @@ export default function MicrostockApp() {
     updateItem(itemId, { status: "processing", error: null });
 
     try {
-      const resized = await resizeImage(file);
-      const base64 = await fileToBase64(resized);
+      // Raster images are downscaled here; Illustrator/PDF/SVG sources arrive as
+      // an already-rendered JPEG produced by the preparation queue.
+      const analysisFile = await analysisFileFor(itemId, target);
+      const base64 = await fileToBase64(analysisFile);
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: {
@@ -547,6 +689,18 @@ export default function MicrostockApp() {
           mimeType: "image/jpeg",
           context,
           targetPlatform,
+          // Tells the model whether it is looking at a photograph or at the
+          // rasterised first page of a vector/document source.
+          source:
+            target.kind === "vector"
+              ? {
+                kind: "vector",
+                format: target.format,
+                label: vectorFormatLabel(target.format),
+                previewMethod: target.sourceMeta?.method || null,
+                pages: target.sourceMeta?.pages ?? null,
+              }
+              : { kind: "raster" },
         }),
       });
 
@@ -691,7 +845,7 @@ export default function MicrostockApp() {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept="image/*,.ai,.ait,.pdf,.svg,.eps,.epsf,.ps"
         className="sr-only"
         tabIndex={-1}
         onChange={(e) => {
