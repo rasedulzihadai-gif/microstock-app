@@ -342,6 +342,32 @@ async function callMistral(modelId, apiKey, systemPrompt, userText, mimeType, im
   return { ok: res.ok, status: res.status, data };
 }
 
+/**
+ * The browser sends a JPEG either of the photo itself or of a rendered vector
+ * document. Without this note a model happily describes a rasterised Illustrator
+ * artboard as "a photograph", which is a relevance error on every marketplace.
+ */
+function buildSourceHint(source) {
+  if (!source || typeof source !== "object" || source.kind !== "vector") return "";
+
+  const label = String(source.label || "vector").slice(0, 40);
+  const details = [];
+  if (source.previewMethod === "pdf") {
+    details.push("The preview is rendered from the file's embedded PDF, so it reflects the artwork accurately.");
+  } else if (source.previewMethod) {
+    details.push("The preview comes from the file's built-in thumbnail, so softness, missing fonts or compression artifacts are rendering limits rather than design choices.");
+  }
+  if (Number(source.pages) > 1) {
+    details.push(`The document holds ${Number(source.pages)} artboards/pages; describe only the first one.`);
+  }
+
+  return [
+    `Source file: an Adobe ${label} vector document, not a camera photograph.`,
+    "Describe the artwork as vector art, illustration, background, template, pattern or design as appropriate; never call it a photo, photograph, shot or capture.",
+    ...details,
+  ].join(" ");
+}
+
 function extractResponseText(provider, data) {
   if (provider === "gemini") {
     return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -478,16 +504,17 @@ export async function POST(req) {
     );
   }
 
-  const { imageBase64, mimeType, context } = body;
+  const { imageBase64, mimeType, context, source } = body;
   const targetPlatform = isSupportedTargetPlatform(body.targetPlatform) ? body.targetPlatform : "adobe_stock";
   const systemPrompt = buildPlatformPrompt(targetPlatform);
   if (!imageBase64) {
     return Response.json({ error: "No image provided." }, { status: 400 });
   }
 
-  const baseUserText = context
-    ? `Context / Theme hint: ${context}. Now analyze this image for stock photography SEO metadata.`
-    : "Analyze this image for stock photography SEO metadata.";
+  const sourceHint = buildSourceHint(source);
+  const baseUserText = [sourceHint, context ? `Context / Theme hint: ${context}.` : "", "Now analyze this image for stock photography SEO metadata."]
+    .filter(Boolean)
+    .join(" ");
 
   // Always put the user's choice first, but do not stop at a dead model.
   // This is especially useful for Ollama, where a model can be configured in

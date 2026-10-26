@@ -8,3 +8,6 @@ out/
 # misc
 .DS_Store
 *.log
+
+# pdf.js preview assets copied from node_modules by scripts/sync-pdfjs-assets.mjs
+public/pdfjs/

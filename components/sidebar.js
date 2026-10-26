@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StatusDot } from "./status-dot";
 import { IconPlus, IconSparkles, IconX } from "./icons";
+import { vectorFormatBadge, vectorFormatLabel } from "../lib/file-types";
 
 const QUEUE_ROW_HEIGHT = 56;
 const QUEUE_OVERSCAN = 6;
@@ -52,7 +53,7 @@ export function Sidebar({
   const visibleItems = items.slice(firstVisible, lastVisible);
 
   return (
-    <aside className="sidebar" aria-label="Image queue">
+    <aside className="sidebar" aria-label="File queue">
       <div className="sidebar__brand">
         <span className="brand-mark brand-mark--logo">
           <img src="/icon-192.png" alt="Lightbox" />
@@ -66,7 +67,7 @@ export function Sidebar({
       <div className="sidebar__actions">
         <button className="btn btn--ghost btn--block" onClick={onAddClick}>
           <IconPlus width={14} height={14} />
-          Add images
+          Add files
         </button>
       </div>
 
@@ -78,7 +79,7 @@ export function Sidebar({
       >
         {items.length === 0 && (
           <p style={{ padding: "20px 10px", color: "var(--text-faint)", fontSize: 12.5, lineHeight: 1.6, margin: 0 }}>
-            Your queue is empty. Add images or drop them on the canvas to get started.
+            Your queue is empty. Add photos, Illustrator files, PDFs or SVGs to get started.
           </p>
         )}
 
@@ -101,11 +102,30 @@ export function Sidebar({
                     aria-current={activeIndex === idx ? "true" : undefined}
                   >
                     <span className="file-item__thumb">
-                      <img src={it.previewUrl} alt="" loading="lazy" decoding="async" />
+                      {it.previewUrl ? (
+                        <img src={it.previewUrl} alt="" loading="lazy" decoding="async" />
+                      ) : (
+                        // Illustrator/PDF/SVG files have no bitmap until they are
+                        // rendered; show the format instead of a broken image.
+                        <span
+                          className={`file-item__thumb-badge${it.previewState === "failed" ? " file-item__thumb-badge--failed" : ""}`}
+                          title={
+                            it.kind === "vector"
+                              ? `${vectorFormatLabel(it.format)}${it.previewState === "loading" ? " — rendering preview…" : ""}`
+                              : undefined
+                          }
+                        >
+                          {it.kind === "vector" ? vectorFormatBadge(it.format) : "IMG"}
+                        </span>
+                      )}
                     </span>
                     <span className="file-item__body">
                       <span className="file-item__name">{it.filename}</span>
-                      <StatusDot status={it.status} />
+                      {it.kind === "vector" && it.status === "pending" && it.previewState === "loading" ? (
+                        <span className="file-item__hint">Rendering preview…</span>
+                      ) : (
+                        <StatusDot status={it.status} />
+                      )}
                     </span>
                   </button>
                   <button
