@@ -13,6 +13,7 @@ export function Sidebar({
   running,
   doneCount,
   onAddClick,
+  onImportCsv,
   onSelect,
   onRemove,
   onRunBatch,
@@ -68,6 +69,9 @@ export function Sidebar({
         <button className="btn btn--ghost btn--block" onClick={onAddClick}>
           <IconPlus width={14} height={14} />
           Add files
+        </button>
+        <button className="btn btn--subtle btn--block" onClick={onImportCsv} title="Import metadata for queued uploads">
+          Import metadata CSV
         </button>
       </div>
 
