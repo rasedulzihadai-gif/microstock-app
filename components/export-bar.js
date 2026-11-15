@@ -5,7 +5,7 @@ const EXPORTS = [
   { key: "adobe_stock", label: "Adobe Stock" },
   { key: "shutterstock", label: "Shutterstock" },
   { key: "istock_getty", label: "iStock" },
-  { key: "freepik_vecteezy", label: "Freepik" },
+  { key: "freepik_vecteezy", label: "Magnific" },
 ];
 
 export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated, availablePlatforms = [] }) {
@@ -22,7 +22,7 @@ export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated, a
       ))}
       <label
         className="exportbar__ai-toggle"
-        title="Freepik requires AI-generated content to carry the _ai_generated keyword. Turn this on when your images were made with AI — it is added to the Freepik CSV automatically."
+        title="Magnific (formerly Freepik) requires AI-generated content to carry the _ai_generated keyword. Turn this on when your images were made with AI — it is added to the Magnific CSV automatically."
       >
         <input
           type="checkbox"

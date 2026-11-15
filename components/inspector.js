@@ -9,7 +9,7 @@ export const PLATFORM_TABS = [
   { key: "adobe_stock", label: "Adobe Stock" },
   { key: "shutterstock", label: "Shutterstock" },
   { key: "istock_getty", label: "iStock / Getty" },
-  { key: "freepik_vecteezy", label: "Freepik / Vecteezy" },
+  { key: "freepik_vecteezy", label: "Magnific / Vecteezy" },
 ];
 
 function CopyButton({ text, label }) {
