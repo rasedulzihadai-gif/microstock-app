@@ -4,6 +4,7 @@ import {
   buildAdobeStockCsv,
   buildShutterstockCsv,
   buildMagnificCsv,
+  getMagnificRowIssues,
   buildIstockGettyCsv,
   buildGenericCsv,
   downloadCsv,
@@ -834,11 +835,26 @@ export default function MicrostockApp() {
     } else if (platform === "freepik_vecteezy") {
       const invalidNames = platformItems.filter((item) => /[;"\r\n]/.test(item.filename) || item.filename !== item.filename.trim());
       if (invalidNames.length) {
-        setFileNotice(`Cannot export Freepik CSV: ${invalidNames.map((item) => item.filename).join(", ")} ${invalidNames.length === 1 ? "has" : "have"} a filename that cannot be represented without quotes. Rename the source file and re-add it.`);
+        setFileNotice(`Cannot export Magnific CSV: ${invalidNames.map((item) => item.filename).join(", ")} ${invalidNames.length === 1 ? "has" : "have"} a filename that cannot be represented without quotes. Rename the source file and re-add it.`);
+        return;
+      }
+      const issues = getMagnificRowIssues(platformItems);
+      const untitled = issues.filter((issue) => issue.problems.includes("no title"));
+      const noKeywords = issues.filter((issue) => issue.problems.includes("no keywords") && !issue.problems.includes("no title"));
+      if (untitled.length === platformItems.length) {
+        setFileNotice(`Nothing to export for Magnific: ${untitled.map((issue) => issue.filename).join(", ")} ${untitled.length === 1 ? "has" : "have"} no title, and Magnific rejects titleless rows. Generate metadata or add titles first.`);
         return;
       }
       csv = buildMagnificCsv(platformItems, { aiGenerated });
       name = "magnific.csv";
+      const notice = [];
+      if (untitled.length) {
+        notice.push(`Left out ${untitled.length} file${untitled.length === 1 ? "" : "s"} with no title: ${untitled.map((issue) => issue.filename).join(", ")}.`);
+      }
+      if (noKeywords.length) {
+        notice.push(`${noKeywords.map((issue) => issue.filename).join(", ")} ${noKeywords.length === 1 ? "has" : "have"} no keywords yet.`);
+      }
+      setFileNotice(notice.length ? `Magnific CSV exported ${platformItems.length - untitled.length} complete row${platformItems.length - untitled.length === 1 ? "" : "s"}. ${notice.join(" ")}` : null);
     } else if (platform === "istock_getty") {
       csv = buildIstockGettyCsv(platformItems);
       name = "istock_getty.csv";
