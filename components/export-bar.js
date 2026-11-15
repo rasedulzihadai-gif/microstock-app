@@ -22,7 +22,7 @@ export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated, a
       ))}
       <label
         className="exportbar__ai-toggle"
-        title="Magnific (formerly Freepik) requires AI-generated content to carry the _ai_generated keyword. Turn this on when your images were made with AI — it is added to the Magnific CSV automatically."
+        title="Sets is_ai to yes in the Freepik CSV for items without an imported AI setting. Imported per-file settings take precedence."
       >
         <input
           type="checkbox"
