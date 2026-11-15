@@ -20,6 +20,8 @@ import {
   vectorFormatLabel,
 } from "../lib/file-types";
 import { renderVectorPreview } from "../lib/vector-preview";
+import { splitTags } from "../lib/import-csv";
+import { ImportMetadataDialog } from "./import-metadata-dialog";
 import { IconAlert, IconRefresh, IconSettings, IconSparkles, IconX } from "./icons";
 
 const DEFAULT_OLLAMA_CONFIG = {
@@ -199,6 +201,7 @@ export default function MicrostockApp() {
   });
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [context, setContext] = useState("");
   const [items, setItems] = useState([]);
   const [activeIndex, setActiveIndex] = useState(null);
@@ -783,6 +786,44 @@ export default function MicrostockApp() {
   const doneItems = items.filter((it) => it.status === "done");
   const active = activeIndex !== null ? items[activeIndex] : null;
 
+  function applyImportedMetadata(records) {
+    const platformKeys = ["adobe_stock", "shutterstock", "istock_getty", "freepik_vecteezy"];
+    setItems((previous) => previous.map((item) => {
+      const record = records.find((candidate) => candidate.item.id === item.id);
+      if (!record) return item;
+      const tags = splitTags(record.tags);
+      const title = record.title.trim();
+      const hasMetadata = Boolean(title || tags.length);
+      const existingPlatforms = item.result?.platforms || {};
+      const platforms = Object.fromEntries(platformKeys.map((key) => {
+        const current = existingPlatforms[key] || { title: "", keywords: [] };
+        return [key, {
+          ...current,
+          title: title || current.title || "",
+          keywords: tags.length ? tags : current.keywords || [],
+        }];
+      }));
+      return {
+        ...item,
+        status: hasMetadata ? "done" : item.status,
+        result: hasMetadata ? {
+          ...(item.result || {}),
+          description: item.result?.description || title,
+          platforms: { ...existingPlatforms, ...platforms },
+          _meta: { ...(item.result?._meta || {}), imported: true },
+        } : item.result,
+        importedMetadata: {
+          ...(item.importedMetadata || {}),
+          is_ai: record.is_ai,
+          ai_prompt: record.ai_prompt,
+          ai_model: record.ai_model,
+          people_count: record.people_count,
+        },
+      };
+    }));
+    if (records.some((record) => /^(true|yes|1)$/i.test(record.is_ai.trim()))) setAiGenerated(true);
+  }
+
   function exportCsv(platform) {
     let csv, name;
     const platformItems = doneItems.filter((item) => item.result?.platforms?.[platform]);
@@ -834,6 +875,7 @@ export default function MicrostockApp() {
         running={running}
         doneCount={doneItems.length}
         onAddClick={openPicker}
+        onImportCsv={() => setShowCsvImport(true)}
         onSelect={(idx) => {
           setActiveIndex(idx);
           setActiveTab(getResultPlatformTab(items[idx], targetPlatform));
@@ -950,6 +992,14 @@ export default function MicrostockApp() {
           />
         )}
       </main>
+
+      {showCsvImport && (
+        <ImportMetadataDialog
+          items={items}
+          onImport={applyImportedMetadata}
+          onClose={() => setShowCsvImport(false)}
+        />
+      )}
 
       {showSettings && (
         <SettingsDrawer
