@@ -11,3 +11,6 @@ out/
 
 # pdf.js preview assets copied from node_modules by scripts/sync-pdfjs-assets.mjs
 public/pdfjs/
+
+# npm lockfile (this repo uses pnpm)
+package-lock.json

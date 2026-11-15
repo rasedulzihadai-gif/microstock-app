@@ -3,7 +3,7 @@ import { startTransition, useState, useEffect, useRef, useCallback } from "react
 import {
   buildAdobeStockCsv,
   buildShutterstockCsv,
-  buildFreepikCsv,
+  buildMagnificCsv,
   buildIstockGettyCsv,
   buildGenericCsv,
   downloadCsv,
@@ -834,8 +834,8 @@ export default function MicrostockApp() {
       csv = buildShutterstockCsv(platformItems);
       name = "shutterstock.csv";
     } else if (platform === "freepik_vecteezy") {
-      csv = buildFreepikCsv(platformItems, { aiGenerated });
-      name = "freepik.csv";
+      csv = buildMagnificCsv(platformItems, { aiGenerated });
+      name = "magnific.csv";
     } else if (platform === "istock_getty") {
       csv = buildIstockGettyCsv(platformItems);
       name = "istock_getty.csv";
@@ -914,7 +914,7 @@ export default function MicrostockApp() {
             <option value="all_platforms">All platforms</option>
             <option value="adobe_stock">Adobe Stock only</option>
             <option value="shutterstock">Shutterstock only</option>
-            <option value="freepik_vecteezy">Freepik only</option>
+            <option value="freepik_vecteezy">Magnific (Freepik) only</option>
             <option value="istock_getty">iStock / Getty only</option>
           </select>
           <div className="input-wrap">

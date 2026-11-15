@@ -511,7 +511,7 @@ export default function Home() {
               <button onClick={() => exportCsv("adobe_stock")} style={ghostBtn}>Adobe Stock CSV</button>
               <button onClick={() => exportCsv("shutterstock")} style={ghostBtn}>Shutterstock CSV</button>
               <button onClick={() => exportCsv("istock_getty")} style={ghostBtn}>iStock CSV</button>
-              <button onClick={() => exportCsv("freepik_vecteezy")} style={ghostBtn}>Freepik CSV</button>
+              <button onClick={() => exportCsv("freepik_vecteezy")} style={ghostBtn}>Magnific CSV</button>
             </div>
             <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
               Note: iStock/Getty validates keywords against their own controlled vocabulary — review that CSV in their submission tool before final upload.
