@@ -22,7 +22,7 @@ export function ExportBar({ count, onExport, aiGenerated, onToggleAiGenerated, a
       ))}
       <label
         className="exportbar__ai-toggle"
-        title="Sets is_ai to yes in the Freepik CSV for items without an imported AI setting. Imported per-file settings take precedence."
+        title="Sets is_ai to yes in the Magnific CSV for items without an imported AI setting. Imported per-file settings take precedence."
       >
         <input
           type="checkbox"

@@ -7,6 +7,7 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
   const inputRef = useRef(null);
   const [fileName, setFileName] = useState("");
   const [records, setRecords] = useState(null);
+  const [parsedFile, setParsedFile] = useState(null);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [showFormat, setShowFormat] = useState(false);
@@ -23,12 +24,16 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
     if (!file) return;
     setFileName(file.name);
     setRecords(null);
+    setParsedFile(null);
     setError("");
     setImported(false);
     try {
       const parsed = parseMetadataCsv(await file.text());
       if (parsed.error) setError(parsed.error);
-      else setRecords(parsed.records);
+      else {
+        setRecords(parsed.records);
+        setParsedFile({ layout: parsed.layout });
+      }
     } catch {
       setError("We couldn't read this file. Please choose a valid CSV and try again.");
     }
@@ -81,8 +86,10 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
             <details className="csv-modal__help">
               <summary>What the CSV needs</summary>
               <ul>
-                <li>Semicolons or commas between columns, with a header row first.</li>
+                <li>Semicolons or commas between columns, with the header row first.</li>
                 <li><strong>filename</strong> is required; title, tags, is_ai, ai_prompt and ai_model are optional. people_count is accepted and ignored for now.</li>
+                <li>Column names are flexible: <strong>filename</strong> or <strong>File name</strong>, <strong>tags</strong> or <strong>Keywords</strong>, <strong>ai_prompt</strong> or <strong>Prompt</strong>, <strong>ai_model</strong> or <strong>Model</strong>.</li>
+                <li>A Magnific CSV without a header row is read in Magnific order: filename; title; keywords; prompt; model.</li>
                 <li>An empty cell leaves that field as it is.</li>
               </ul>
             </details>
@@ -97,6 +104,9 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
         {records && !imported && (
           <>
             <p className="csv-modal__intro">Found {records.length} row{records.length === 1 ? "" : "s"} in <strong>{fileName}</strong>. {matchCount} match{matchCount === 1 ? "es" : ""} a file in your upload queue.</p>
+            {parsedFile?.layout === "magnific" && (
+              <p className="csv-modal__format">No header row found, so this file was read in Magnific order: filename; title; keywords; prompt; model</p>
+            )}
             {matchCount === 0 ? <p className="csv-modal__error" role="alert">No filenames in this CSV match files in your queue. Add the matching uploads first, then select this CSV again.</p> : (
               <div className="csv-preview" role="region" aria-label="CSV rows to import">
                 {matched.slice(0, 8).map((record) => <div key={`${record.rowNumber}-${record.filename}`} className="csv-preview__row"><span className={record.item ? "csv-preview__matched" : "csv-preview__unmatched"}>{record.item ? "✓" : "–"}</span><strong>{record.filename}</strong><span>{record.item ? "Matched" : "Not in queue"}</span></div>)}
@@ -104,7 +114,7 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
               </div>
             )}
             <div className="csv-modal__links">
-              <button className="btn btn--ghost btn--sm" onClick={() => { setRecords(null); setError(""); }}>Choose another file</button>
+              <button className="btn btn--ghost btn--sm" onClick={() => { setRecords(null); setParsedFile(null); setError(""); }}>Choose another file</button>
               <button className="btn btn--primary" disabled={matchCount === 0} onClick={applyImport}>Import {matchCount} matched file{matchCount === 1 ? "" : "s"}</button>
             </div>
           </>
