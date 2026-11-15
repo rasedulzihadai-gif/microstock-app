@@ -90,7 +90,7 @@ export function ImportMetadataDialog({ items, onImport, onClose }) {
               <button className="btn btn--ghost btn--sm" onClick={downloadTemplate}>↓ &nbsp;Download template</button>
               <button className="btn btn--ghost btn--sm" onClick={() => setShowFormat((value) => !value)}>CSV format</button>
             </div>
-            {showFormat && <p className="csv-modal__format">filename,title,tags,is_ai,ai_prompt,ai_model,people_count</p>}
+            {showFormat && <p className="csv-modal__format">filename;title;tags;is_ai;ai_prompt;ai_model;people_count</p>}
           </>
         )}
 

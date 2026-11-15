@@ -814,14 +814,12 @@ export default function MicrostockApp() {
         } : item.result,
         importedMetadata: {
           ...(item.importedMetadata || {}),
-          is_ai: record.is_ai,
-          ai_prompt: record.ai_prompt,
-          ai_model: record.ai_model,
-          people_count: record.people_count,
+          ...(record.is_ai && { is_ai: record.is_ai }),
+          ...(record.ai_prompt && { ai_prompt: record.ai_prompt }),
+          ...(record.ai_model && { ai_model: record.ai_model }),
         },
       };
     }));
-    if (records.some((record) => /^(true|yes|1)$/i.test(record.is_ai.trim()))) setAiGenerated(true);
   }
 
   function exportCsv(platform) {
@@ -834,6 +832,11 @@ export default function MicrostockApp() {
       csv = buildShutterstockCsv(platformItems);
       name = "shutterstock.csv";
     } else if (platform === "freepik_vecteezy") {
+      const invalidNames = platformItems.filter((item) => /[;"\r\n]/.test(item.filename) || item.filename !== item.filename.trim());
+      if (invalidNames.length) {
+        setFileNotice(`Cannot export Freepik CSV: ${invalidNames.map((item) => item.filename).join(", ")} ${invalidNames.length === 1 ? "has" : "have"} a filename that cannot be represented without quotes. Rename the source file and re-add it.`);
+        return;
+      }
       csv = buildMagnificCsv(platformItems, { aiGenerated });
       name = "magnific.csv";
     } else if (platform === "istock_getty") {
